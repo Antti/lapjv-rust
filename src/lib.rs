@@ -5,24 +5,9 @@ extern crate ndarray;
 
 pub type Matrix<T> = ndarray::Array2<T>;
 
-/// @brief Jonker-Volgenant algorithm.
-/// @param dim in problem size
-/// @param assign_cost in cost matrix
-/// @param verbose in indicates whether to report the progress to stdout
-/// @param rowsol out column assigned to row in solution / size dim
-/// @param colsol out row assigned to column in solution / size dim
-/// @param u out dual variables, row reduction numbers / size dim
-/// @param v out dual variables, column reduction numbers / size dim
-/// @return achieved minimum assignment cost
-
+/// Jonker-Volgenant algorithm.
 pub fn lapjv(matrix: &Matrix<f64>) -> (Vec<isize>, Vec<isize>) {
-    {
-        use std::io::Write;
-        let mut f = std::fs::File::create("matrix.txt").unwrap();
-        f.write_all(format!("{:?}", matrix).as_bytes()).unwrap();
-        f.flush().unwrap();
-    }
-    let dim = matrix.dim().0;
+    let dim = matrix.dim().0; // square matrix dimensions
     let mut free = vec![0; dim]; // list of unassigned rows.
     let mut collist = vec![0; dim]; // list of columns to be scanned in various ways.
     let mut matches = vec![0; dim]; // counts how many times a row could be assigned.
@@ -59,11 +44,11 @@ pub fn lapjv(matrix: &Matrix<f64>) -> (Vec<isize>, Vec<isize>) {
     println!("lapjv: column reduction finished");
 
     // REDUCTION TRANSFER
-    let mut numfree = 0;
+    let mut num_free_rows = 0;
     for i in 0..dim {
         if matches[i] == 0 {  // fill list of unassigned 'free' rows.
-            free[numfree] = i;
-            numfree +=1;
+            free[num_free_rows] = i;
+            num_free_rows +=1;
         } else if matches[i] == 1 { // transfer reduction from rows that are assigned once.
             let j1 = in_row[i] as usize;
             let mut min = std::f64::MAX;
@@ -76,76 +61,42 @@ pub fn lapjv(matrix: &Matrix<f64>) -> (Vec<isize>, Vec<isize>) {
         }
     }
 
-    println!("lapjv: REDUCTION TRANSFER finished");
+    println!("lapjv: reduction transfer finished");
 
-    // AUGMENTING ROW REDUCTION
-    for loopcmt in 0..2 { // loop to be done twice.
-        // scan all free rows.
-        // in some cases, a free row may be replaced with another one to be scanned next.
-        let mut k = 0;
-        let prvnumfree = numfree;
-        numfree = 0; // start list of rows still free after augmenting row reduction.
-
-        while k < prvnumfree {
-            let i = free[k];
-            k += 1;
-            // find minimum and second minimum reduced cost over columns.
-            let (umin, usubmin, mut j1, mut j2) = find_umins_plain(matrix, i, &v);
-
-            let mut i0 = in_col[j1];
-            let vj1_new = v[j1] - (usubmin - umin);
-            let vj1_lowers = vj1_new < v[j1];  // the trick to eliminate the epsilon bug
-
-            if vj1_lowers {
-                // change the reduction of the minimum column to increase the minimum
-                // reduced cost in the row to the subminimum.
-                v[j1] = vj1_new;
-            } else if i0 >= 0 { // minimum and subminimum equal.
-                // minimum column j1 is assigned.
-                // swap columns j1 and j2, as j2 may be unassigned.
-                j1 = j2;
-                i0 = in_col[j2];
-            }
-
-            // (re-)assign i to j1, possibly de-assigning an i0.
-            in_row[i] = j1 as isize;
-            in_col[j1] = i as isize;
-
-            if i0 >= 0 { // minimum column j1 assigned earlier.
-                if vj1_lowers {
-                    // put in current k, and go back to that k.
-                    // continue augmenting path i - j1 with i0.
-                    k -= 1;
-                    free[k] = i0 as usize;
-                } else {
-                    // no further augmenting reduction possible.
-                    // store i0 in list of free rows for next phase.
-                    free[numfree] = i0 as usize;
-                    numfree += 1;
-                }
-            }
-        }
-        println!("lapjv: augmenting row reduction: {}/{}", loopcmt, 2);
+    let mut i = 0;
+    while num_free_rows > 0 && i < 2 {
+        num_free_rows = carr_dense(matrix, num_free_rows, &mut free, &mut in_col, &mut in_row, &mut v);
+        i+= 1;
+        println!("lapjv: augmenting row reduction: {}/{}", i, 2);
     }
 
-    for f in 0..numfree {
+    eprintln!("lapjv: num_free_rows: {}", num_free_rows);
+    for f in 0..num_free_rows {
         let freerow = free[f];
         let mut endofpath = 0;
+
+        // Dijkstra shortest path algorithm.
+        // runs until unassigned column added to shortest path tree.
         for j in 0..dim {
             d[j] = matrix[(freerow, j)] - v[j];
             pred[j] = freerow;
             collist[j] = j;
         }
 
-        let mut low = 0;
-        let mut up = 0;
+        let mut low = 0; // columns in 0..low-1 are ready, now none.
+        let mut up = 0;  // columns in low..up-1 are to be scanned for current minimum, now none.
+                         // columns in up..dim-1 are to be considered later to find new minimum,
+                         // at this stage the list simply contains all columns
         let mut unassignedfound = false;
 
+        // initialized in the first iteration: low == up == 0
+        let mut min = 0f64;
+        let mut last = 0;
         while !unassignedfound {
-            let mut min = 0f64;
-            let mut last = 0;
-            if up == low {
+            if up == low { // no more columns to be scanned for current minimum.
                 last = low - 1;
+                 // scan columns for up..dim-1 to find all indices for which new minimum occurs.
+                // store these indices between low..up-1 (increasing up).
                 min = d[collist[up]];
                 up += 1;
 
@@ -153,19 +104,23 @@ pub fn lapjv(matrix: &Matrix<f64>) -> (Vec<isize>, Vec<isize>) {
                     let j = collist[k];
                     let h = d[j];
                     if h <= min {
-                        if h < min {
-                            up = low;
+                        if h < min { // new minimum.
+                            up = low; // restart list at index low.
                             min = h;
                         }
+                        // new index with same minimum, put on undex up, and extend list.
                         collist[k] = collist[up];
                         collist[up] = j;
                         up += 1;
                     }
                 }
 
+                // check if any of the minimum columns happens to be unassigned.
+                // if so, we have an augmenting path right away.
                 for k in low..up {
-                    if in_col[collist[k]] < 0 {
-                        endofpath = collist[k];
+                    let j = collist[k];
+                    if in_col[j] < 0 {
+                        endofpath = j;
                         unassignedfound = true;
                         break;
                     }
@@ -220,16 +175,76 @@ pub fn lapjv(matrix: &Matrix<f64>) -> (Vec<isize>, Vec<isize>) {
     (in_row, in_col)
 }
 
+// Augmenting row reduction for a dense cost matrix.
+fn carr_dense(matrix: &Matrix<f64>, num_free_rows: usize, free_rows: &mut [usize], in_col: &mut Vec<isize>, in_row: &mut Vec<isize>, v: &mut Vec<f64>) -> usize {
+    // AUGMENTING ROW REDUCTION
+    // scan all free rows.
+    // in some cases, a free row may be replaced with another one to be scanned next.
+    let dim = matrix.dim().0;
+    let mut current = 0;
+    let mut new_free_rows = 0; // start list of rows still free after augmenting row reduction.
+    let mut rr_cnt = 0;
 
+    while current < num_free_rows {
+        rr_cnt += 1;
+        let free_i = free_rows[current];
+        current += 1;
+        // find minimum and second minimum reduced cost over columns.
+        let (v1, v2, mut j1, j2) = find_umins_plain(matrix, free_i, &v);
+
+        let mut i0 = in_col[j1];
+        let v1_new = v[j1] - (v2 - v1);
+        let v1_lowers = v1_new < v[j1];  // the trick to eliminate the epsilon bug
+
+        if rr_cnt < current * dim {
+            if v1_lowers {
+                // change the reduction of the minimum column to increase the minimum
+                // reduced cost in the row to the subminimum.
+                v[j1] = v1_new;
+            } else if i0 >= 0 && j2 >= 0 { // minimum and subminimum equal.
+                // minimum column j1 is assigned.
+                // swap columns j1 and j2, as j2 may be unassigned.
+                j1 = j2 as usize;
+                i0 = in_col[j2 as usize];
+            }
+
+            if i0 >= 0 { // minimum column j1 assigned earlier.
+                if v1_lowers {
+                    // put in current k, and go back to that k.
+                    // continue augmenting path i - j1 with i0.
+                    current -= 1;
+                    free_rows[current] = i0 as usize;
+                } else {
+                    // no further augmenting reduction possible.
+                    // store i0 in list of free rows for next phase.
+                    free_rows[new_free_rows] = i0 as usize;
+                    new_free_rows += 1;
+                }
+            }
+        } else {
+            if i0 >= 0 {
+                free_rows[new_free_rows] = i0 as usize;
+                new_free_rows += 1;
+            }
+        }
+        in_row[free_i] = j1 as isize;
+        in_col[j1] = free_i as isize;
+    }
+    new_free_rows
+}
+
+
+
+// Finds minimum and second minimum from a row, returns (min, second_min, min_index, second_min_index)
 #[inline(always)]
-fn find_umins_plain(matrix: &Matrix<f64>, row: usize, v: &[f64]) -> (f64, f64, usize, usize) {
+fn find_umins_plain(matrix: &Matrix<f64>, row: usize, v: &[f64]) -> (f64, f64, usize, isize) {
     let local_cost = matrix.row(row);
     let mut umin = local_cost[0] - v[0];
-    let mut j1 = 0isize;
-    let mut j2 = -1isize;
-    let mut usubmin = std::f64::MAX;
+    let mut usubmin = std::f64::INFINITY;
+    let mut j1 = 0;
+    let mut j2 = -1;
     for j in 1..local_cost.dim() {
-        let h = local_cost[j] - v[j];
+        let h = local_cost[j as usize] - v[j as usize];
         if h < usubmin {
             if h >= umin {
                 usubmin = h;
@@ -237,12 +252,12 @@ fn find_umins_plain(matrix: &Matrix<f64>, row: usize, v: &[f64]) -> (f64, f64, u
             } else {
                 usubmin = umin;
                 umin = h;
-                j2 = j1;
-                j1 = j as isize;
+                j2 = j1 as isize;
+                j1 = j;
             }
         }
     }
-    (umin, usubmin, j1 as usize, j2 as usize)
+    (umin, usubmin, j1, j2)
 }
 
 #[cfg(test)]
@@ -264,6 +279,19 @@ mod tests {
         let cost = cost(&m, (&result.0, &result.1));
         assert_eq!(cost, 1071.0);
         assert_eq!(result.0, vec![7,9,3,4,1,0,5,6,2,8]);
+    }
+
+    #[test]
+    fn test_find_umins() {
+        let m = Matrix::from_shape_vec((3,3), vec![25.0,0.0,15.0,4.0,5.0,6.0,7.0,8.0,9.0]).unwrap();
+        let result = find_umins_plain(&m, 0, &vec![0.0,0.0,0.0]);
+        println!("Result: {:?}", result);
+        assert_eq!(result,(0.0, 15.0, 1, 2));
+    }
+
+    #[test]
+    fn test_huge_matrix() {
+        // let matrix = include!("../matrix.txt");
     }
 
     #[bench]
