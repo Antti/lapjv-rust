@@ -1,4 +1,7 @@
+#![feature(test)]
+
 extern crate ndarray;
+#[cfg(test)] extern crate test;
 
 pub type Matrix<T> = ndarray::Array2<T>;
 
@@ -28,8 +31,8 @@ pub fn lapjv(matrix: &Matrix<f64>) -> (Vec<isize>, Vec<isize>) {
 
     let mut v = vec![0f64; dim];
 
-    let mut in_row = vec![0isize; dim];
-    let mut in_col = vec![0isize; dim];
+    let mut in_row = vec![0; dim];
+    let mut in_col = vec![0; dim];
 
     // COLUMN REDUCTION
     for j in (0..dim).into_iter().rev() {   // reverse order gives better results.
@@ -87,41 +90,29 @@ pub fn lapjv(matrix: &Matrix<f64>) -> (Vec<isize>, Vec<isize>) {
             let i = free[k];
             k += 1;
             // find minimum and second minimum reduced cost over columns.
-            // let (umin, usubmin, j1, j2) = find_umins_plain(matrix, i, &v);
-            let mut umin = matrix[[i,0]] - v[0];
-            let mut usubmin = std::f64::MAX;
-            let mut j1 = 0;
-            let mut j2 = 0;
-            let mut i0;
+            let (umin, usubmin, mut j1, mut j2) = find_umins_plain(matrix, i, &v);
 
-            for j in 1..dim {
-                let h = matrix[(i,j)] - v[j];
-                if h < usubmin {
-                    if h >= umin {
-                        usubmin = h;
-                        j2 = j;
-                    } else {
-                        usubmin = umin;
-                        umin = h;
-                        j2 = j1;
-                        j1 = j;
-                    }
-                }
-            }
+            let mut i0 = in_col[j1];
+            let vj1_new = v[j1] - (usubmin - umin);
+            let vj1_lowers = vj1_new < v[j1];  // the trick to eliminate the epsilon bug
 
-            i0 = in_col[j1];
-            if umin < usubmin {
-                v[j1] = v[j1] - (usubmin - umin);
-            } else if i0 >= 0 {
+            if vj1_lowers {
+                // change the reduction of the minimum column to increase the minimum
+                // reduced cost in the row to the subminimum.
+                v[j1] = vj1_new;
+            } else if i0 >= 0 { // minimum and subminimum equal.
+                // minimum column j1 is assigned.
+                // swap columns j1 and j2, as j2 may be unassigned.
                 j1 = j2;
                 i0 = in_col[j2];
             }
 
             // (re-)assign i to j1, possibly de-assigning an i0.
             in_row[i] = j1 as isize;
-            in_col[j1 as usize] = i as isize;
+            in_col[j1] = i as isize;
+
             if i0 >= 0 { // minimum column j1 assigned earlier.
-                if umin < usubmin {
+                if vj1_lowers {
                     // put in current k, and go back to that k.
                     // continue augmenting path i - j1 with i0.
                     k -= 1;
@@ -194,7 +185,7 @@ pub fn lapjv(matrix: &Matrix<f64>) -> (Vec<isize>, Vec<isize>) {
                     if v2 < d[j] {
                         pred[j] = i;
 
-                        if v2 == min {
+                        if (v2 - min).abs() < std::f64::EPSILON {
                             if in_col[j] < 0 {
                                 endofpath = j;
                                 unassignedfound = true;
@@ -229,32 +220,9 @@ pub fn lapjv(matrix: &Matrix<f64>) -> (Vec<isize>, Vec<isize>) {
     (in_row, in_col)
 }
 
-#[inline(always)]
-fn find_umins_plain_(dim: usize, idx: usize, assign_cost: &[f64], v: &[f64]) -> (f64, f64, isize, isize) {
-    let local_cost = &assign_cost[idx * dim..];
-    let mut umin = local_cost[0] - v[0];
-    let mut j1 = 0isize;
-    let mut j2 = -1isize;
-    let mut usubmin = std::f64::MAX;
-    for j in 1..dim {
-        let h = local_cost[j] - v[j];
-        if h < usubmin {
-            if h >= umin {
-                usubmin = h;
-                j2 = j as isize;
-            } else {
-                usubmin = umin;
-                umin = h;
-                j2 = j1;
-                j1 = j as isize;
-            }
-        }
-    }
-    (umin, usubmin, j1, j2)
-}
 
 #[inline(always)]
-fn find_umins_plain(matrix: &Matrix<f64>, row: usize, v: &[f64]) -> (f64, f64, isize, isize) {
+fn find_umins_plain(matrix: &Matrix<f64>, row: usize, v: &[f64]) -> (f64, f64, usize, usize) {
     let local_cost = matrix.row(row);
     let mut umin = local_cost[0] - v[0];
     let mut j1 = 0isize;
@@ -274,12 +242,14 @@ fn find_umins_plain(matrix: &Matrix<f64>, row: usize, v: &[f64]) -> (f64, f64, i
             }
         }
     }
-    (umin, usubmin, j1, j2)
+    (umin, usubmin, j1 as usize, j2 as usize)
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
+    use test::Bencher;
+
     #[test]
     fn it_works() {
         let m = Matrix::from_shape_vec((3,3), vec![1.0,2.0,3.0,4.0,5.0,6.0,7.0,8.0,9.0]).unwrap();
@@ -290,6 +260,18 @@ mod tests {
 
     #[test]
     fn test_solve_random10() {
+        let (m, result) = solve_random10();
+        let cost = cost(&m, (&result.0, &result.1));
+        assert_eq!(cost, 1071.0);
+        assert_eq!(result.0, vec![7,9,3,4,1,0,5,6,2,8]);
+    }
+
+    #[bench]
+    fn bench_solve_random10(b: &mut Bencher) {
+        b.iter(|| test_solve_random10());
+    }
+
+    fn solve_random10() -> (Matrix<f64>, (Vec<isize>, Vec<isize>)) {
         const N: usize = 10;
         let c = vec![
             612, 643, 717,   2, 946, 534, 242, 235, 376, 839,
@@ -305,9 +287,7 @@ mod tests {
         ].iter().map(|x| *x as f64).collect();
         let m = Matrix::from_shape_vec((N,N), c).unwrap();
         let result = lapjv(&m);
-        let cost = cost(&m, (&result.0, &result.1));
-        assert_eq!(cost, 1071.0);
-        assert_eq!(result.0, vec![7,9,3,4,1,0,5,6,2,8]);
+        (m, result)
     }
 
     fn cost(input: &Matrix<f64>, (rows, _cols): (&[isize], &[isize])) -> f64 {
