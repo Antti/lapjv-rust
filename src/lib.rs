@@ -1,6 +1,7 @@
 #![feature(test)]
 
 extern crate ndarray;
+extern crate rand;
 #[cfg(test)] extern crate test;
 
 pub type Matrix<T> = ndarray::Array2<T>;
@@ -8,175 +9,109 @@ pub type Matrix<T> = ndarray::Array2<T>;
 /// Jonker-Volgenant algorithm.
 pub fn lapjv(matrix: &Matrix<f64>) -> (Vec<isize>, Vec<isize>) {
     let dim = matrix.dim().0; // square matrix dimensions
-    let mut free = vec![0; dim]; // list of unassigned rows.
-    let mut collist = vec![0; dim]; // list of columns to be scanned in various ways.
-    let mut matches = vec![0; dim]; // counts how many times a row could be assigned.
-    let mut d = vec![0f64; dim]; // 'cost-distance' in augmenting path calculation. // cost
-    let mut pred = vec![0; dim]; // row-predecessor of column in augmenting/alternating path.
+    let mut free_rows = vec![0; dim]; // list of unassigned rows.
 
-    let mut v = vec![0f64; dim];
-
-    let mut in_row = vec![0; dim];
+    let mut v = vec![std::f64::MAX; dim];
+    let mut in_row = vec![-1; dim];
     let mut in_col = vec![0; dim];
 
-    // COLUMN REDUCTION
-    for j in (0..dim).into_iter().rev() {   // reverse order gives better results.
-        let mut min = matrix[(0, j)];
-        let mut imin = 0;
-        for i in 1..dim {
-            if matrix[(i, j)] < min {
-                min = matrix[(i,j)];
-                imin = i;
-            }
-        }
-
-		v[j] = min;
-		matches[imin] += 1;
-
-        if matches[imin] == 1 {
-            // init assignment if minimum row assigned for first time.
-            in_row[imin] = j as isize;
-            in_col[j] = imin as isize;
-        } else {
-            in_col[j] = -1; // row already assigned, column not assigned.
-        }
-    }
-    println!("lapjv: column reduction finished");
-
-    // REDUCTION TRANSFER
-    let mut num_free_rows = 0;
-    for i in 0..dim {
-        if matches[i] == 0 {  // fill list of unassigned 'free' rows.
-            free[num_free_rows] = i;
-            num_free_rows +=1;
-        } else if matches[i] == 1 { // transfer reduction from rows that are assigned once.
-            let j1 = in_row[i] as usize;
-            let mut min = std::f64::MAX;
-            for j in 0..dim {
-                if j != j1 && matrix[(i,j)] - v[j] < min {
-                    min = matrix[(i,j)] - v[j];
-                }
-            }
-            v[j1] -= min;
-        }
-    }
-
-    println!("lapjv: reduction transfer finished");
+    let mut num_free_rows = ccrrt_dense(matrix, &mut free_rows, &mut in_row, &mut in_col, &mut v);
 
     let mut i = 0;
     while num_free_rows > 0 && i < 2 {
-        num_free_rows = carr_dense(matrix, num_free_rows, &mut free, &mut in_col, &mut in_row, &mut v);
+        num_free_rows = carr_dense(matrix, num_free_rows, &mut free_rows, &mut in_row, &mut in_col, &mut v);
         i+= 1;
         println!("lapjv: augmenting row reduction: {}/{}", i, 2);
     }
-
-    eprintln!("lapjv: num_free_rows: {}", num_free_rows);
-    for f in 0..num_free_rows {
-        let freerow = free[f];
-        let mut endofpath = 0;
-
-        // Dijkstra shortest path algorithm.
-        // runs until unassigned column added to shortest path tree.
-        for j in 0..dim {
-            d[j] = matrix[(freerow, j)] - v[j];
-            pred[j] = freerow;
-            collist[j] = j;
-        }
-
-        let mut low = 0; // columns in 0..low-1 are ready, now none.
-        let mut up = 0;  // columns in low..up-1 are to be scanned for current minimum, now none.
-                         // columns in up..dim-1 are to be considered later to find new minimum,
-                         // at this stage the list simply contains all columns
-        let mut unassignedfound = false;
-
-        // initialized in the first iteration: low == up == 0
-        let mut min = 0f64;
-        let mut last = 0;
-        while !unassignedfound {
-            if up == low { // no more columns to be scanned for current minimum.
-                last = low - 1;
-                 // scan columns for up..dim-1 to find all indices for which new minimum occurs.
-                // store these indices between low..up-1 (increasing up).
-                min = d[collist[up]];
-                up += 1;
-
-                for k in up..dim {
-                    let j = collist[k];
-                    let h = d[j];
-                    if h <= min {
-                        if h < min { // new minimum.
-                            up = low; // restart list at index low.
-                            min = h;
-                        }
-                        // new index with same minimum, put on undex up, and extend list.
-                        collist[k] = collist[up];
-                        collist[up] = j;
-                        up += 1;
-                    }
-                }
-
-                // check if any of the minimum columns happens to be unassigned.
-                // if so, we have an augmenting path right away.
-                for k in low..up {
-                    let j = collist[k];
-                    if in_col[j] < 0 {
-                        endofpath = j;
-                        unassignedfound = true;
-                        break;
-                    }
-                }
-            }
-
-            if !unassignedfound {
-                let j1 = collist[low];
-                low += 1;
-                let i = in_col[j1] as usize;
-                let h = matrix[(i, j1)] - v[j1] - min;
-
-                for k in up..dim {
-                    let j = collist[k];
-                    let v2 = matrix[(i, j)] - v[j] - h;
-
-                    if v2 < d[j] {
-                        pred[j] = i;
-
-                        if (v2 - min).abs() < std::f64::EPSILON {
-                            if in_col[j] < 0 {
-                                endofpath = j;
-                                unassignedfound = true;
-                                break;
-                            } else {
-                                collist[k] = collist[up];
-                                collist[up] = j;
-                                up += 1;
-                            }
-                        }
-
-                        d[j] = v2;
-                    }
-                }
-            }
-
-            for k in 0..last {
-                let j1 = collist[k];
-                v[j1] += d[j1] - min;
-            }
-
-            let mut i = freerow + 1;
-            while i != freerow {
-                i = pred[endofpath];
-                in_col[endofpath] = i as isize;
-                let j1 = endofpath;
-                endofpath = in_row[i] as usize;
-                in_row[i] = j1 as isize;
-            }
-        }
+    if num_free_rows > 0 {
+        println!("lapjv: ca_dense with num_free_rows: {}", num_free_rows);
+        ca_dense(matrix, num_free_rows, &mut free_rows, &mut in_row, &mut in_col, &mut v);
     }
     (in_row, in_col)
 }
 
+fn ccrrt_dense(matrix: &Matrix<f64>, free_rows: &mut [usize], in_row: &mut [isize], in_col: &mut[isize], v: &mut [f64]) -> usize {
+    let dim = matrix.dim().0;
+    let mut n_free_rows = 0;
+    let mut unique = vec![true; dim];
+
+    for i in 0..dim {
+        for j in 0..dim {
+            let c = matrix[(i,j)];
+            if c < v[j] {
+                v[j] = c;
+                in_col[j] = i as isize;
+            }
+        }
+    }
+
+
+    let mut j = dim;
+    loop {
+        j -= 1;
+        let i = in_col[j] as usize;
+        if in_row[i] < 0 {
+            in_row[i] = j as isize;
+        } else {
+            unique[i] = false;
+            in_col[j] = -1;
+        }
+        if j == 0 {
+            break;
+        }
+    }
+
+    for i in 0..dim {
+        if in_row[i] < 0 {
+            free_rows[n_free_rows] = i;
+            n_free_rows +=  1;
+        } else if unique[i] {
+            let j = in_row[i];
+            let mut min = std::f64::MAX;
+            for j2 in 0..dim {
+                if j2 == j as usize {
+                    continue;
+                }
+                let c = matrix[(i, j2)] - v[j2];
+                if c < min {
+                    min = c;
+                }
+            }
+            v[j as usize] -= min;
+        }
+    }
+    n_free_rows
+}
+
+// Augment for a dense cost matrix.
+fn ca_dense(matrix: &Matrix<f64>, num_free_rows: usize, free_rows: &mut [usize], in_row: &mut [isize], in_col: &mut [isize], v: &mut [f64]) {
+    let dim = matrix.dim().0;
+    let mut pred = vec![0; dim];
+
+    for f in 0..num_free_rows {
+        let freerow = free_rows[f];
+        // println!("looking at free_i={}", freerow);
+
+        let mut i = std::usize::MAX;
+        let mut k = 0;
+        let mut j = find_path_dense(matrix, freerow, in_col, v, &mut pred);
+        assert!(j < dim);
+        while i != freerow {
+            i = pred[j];
+            in_col[j] = i as isize;
+            let tmp = j;
+            j = in_row[i] as usize;
+            in_row[i] = tmp as isize;
+            k += 1;
+            if k >= dim {
+                panic!("ca_dense failed");
+            }
+        }
+    }
+}
+
 // Augmenting row reduction for a dense cost matrix.
-fn carr_dense(matrix: &Matrix<f64>, num_free_rows: usize, free_rows: &mut [usize], in_col: &mut Vec<isize>, in_row: &mut Vec<isize>, v: &mut Vec<f64>) -> usize {
+fn carr_dense(matrix: &Matrix<f64>, num_free_rows: usize, free_rows: &mut [usize], in_row: &mut [isize], in_col: &mut [isize], v: &mut [f64]) -> usize {
     // AUGMENTING ROW REDUCTION
     // scan all free rows.
     // in some cases, a free row may be replaced with another one to be scanned next.
@@ -185,6 +120,10 @@ fn carr_dense(matrix: &Matrix<f64>, num_free_rows: usize, free_rows: &mut [usize
     let mut new_free_rows = 0; // start list of rows still free after augmenting row reduction.
     let mut rr_cnt = 0;
 
+    // println!("X {:?}", in_row);
+    // println!("Y {:?}", in_col);
+    // println!("V {:?}", v);
+    // println!("F({}) {:?}", num_free_rows, &free_rows[0..num_free_rows]);
     while current < num_free_rows {
         rr_cnt += 1;
         let free_i = free_rows[current];
@@ -233,6 +172,109 @@ fn carr_dense(matrix: &Matrix<f64>, num_free_rows: usize, free_rows: &mut [usize
     new_free_rows
 }
 
+/** Single iteration of modified Dijkstra shortest path algorithm as explained in the JV paper.
+ *
+ * This is a dense matrix version.
+ *
+ * \return The closest free column index.
+ */
+fn find_path_dense(matrix: &Matrix<f64>, start_i: usize, in_col: &mut [isize], v: &mut [f64], pred: &mut [usize]) -> usize {
+    let dim = matrix.dim().0;
+    let mut collist = vec![0; dim]; // list of columns to be scanned in various ways.
+    let mut d = vec![0f64; dim]; // 'cost-distance' in augmenting path calculation. // cost
+
+    let mut lo = 0;
+    let mut hi = 0;
+    let mut n_ready = 0;
+
+    // Dijkstra shortest path algorithm.
+    // runs until unassigned column added to shortest path tree.
+    for i in 0..dim {
+        collist[i] = i;
+        pred[i] = start_i;
+        d[i] = matrix[(start_i, i)] - v[i];
+    }
+
+    // println!("d: {:?}", d);
+    loop {
+        if lo == hi {
+            // println!("{}..{} -> find", lo, hi);
+            n_ready = lo;
+            hi = find_dense(dim, lo, &mut d, &mut collist);
+            // println!("check {}..{}", lo, hi);
+            // check if any of the minimum columns happens to be unassigned.
+            // if so, we have an augmenting path right away.
+            for k in lo..hi {
+                let j = collist[k];
+                if in_col[j] < 0 {
+                    return j;
+                }
+            }
+        }
+
+        // println!("{}..{} -> scan", lo, hi);
+
+        let (new_hi, new_lo, maybe_final_j) = scan_dense(matrix, lo, hi, &mut d, &mut collist, pred, in_col, v);
+        hi = new_hi;
+        lo = new_lo;
+        if let Some(final_j) = maybe_final_j {
+            return final_j;
+        }
+    }
+}
+
+fn find_dense(dim: usize, lo: usize, d: &mut [f64], collist: &mut [usize]) -> usize {
+    let mut hi  = lo + 1;
+    let mut min = d[collist[lo]];
+    for k in hi..dim {
+        let j = collist[k];
+        if d[j] <= min {
+            if d[j] < min { // new minimum.
+                hi = lo; // restart list at index low.
+                min = d[j];
+            }
+            // new index with same minimum, put on undex up, and extend list.
+            collist[k] = collist[hi];
+            collist[hi] = j;
+            hi+=1;
+        }
+    }
+    hi
+}
+
+// Scan all columns in TODO starting from arbitrary column in SCAN
+// and try to decrease d of the TODO columns using the SCAN column.
+fn scan_dense(matrix: &Matrix<f64>, mut lo: usize, mut hi: usize, d: &mut [f64], collist: &mut [usize], pred: &mut [usize], in_col: &mut [isize], v: &mut [f64]) -> (usize, usize, Option<usize>) {
+    let mut h;
+    let mut cred_ij;
+
+    while lo != hi {
+        let j = collist[lo];
+        lo += 1;
+        let i = in_col[j] as usize;
+        let mind = d[j];
+        h = matrix[(i, j)] - v[j] - mind;
+        // For all columns in TODO
+
+        for k in hi..matrix.dim().0 {
+            let j = collist[k];
+            cred_ij = matrix[(i, j)] - v[j] - h;
+            if cred_ij < d[j] {
+                d[j] = cred_ij;
+                pred[j] = i;
+                if cred_ij == mind {
+                    if in_col[j] < 0 {
+                        return (lo, hi, Some(j));
+                    }
+                    collist[k] = collist[hi];
+                    collist[hi] = j;
+                    hi += 1;
+                }
+            }
+        }
+    }
+    (lo, hi, None)
+}
 
 
 // Finds minimum and second minimum from a row, returns (min, second_min, min_index, second_min_index)
@@ -264,6 +306,7 @@ fn find_umins_plain(matrix: &Matrix<f64>, row: usize, v: &[f64]) -> (f64, f64, u
 mod tests {
     use super::*;
     use test::Bencher;
+    use rand;
 
     #[test]
     fn it_works() {
@@ -282,6 +325,25 @@ mod tests {
     }
 
     #[test]
+    fn test_solve_inf1() {
+        let c = vec![
+            std::f64::INFINITY, 643.0, 717.0,   2.0, 946.0, 534.0, 242.0, 235.0, 376.0, 839.0,
+            std::f64::INFINITY, 141.0, 799.0, 180.0, 386.0, 745.0, 592.0, 822.0, 421.0,  42.0,
+            std::f64::INFINITY, 369.0, 831.0,  67.0, 258.0, 549.0, 615.0, 529.0, 458.0, 524.0,
+            std::f64::INFINITY, 649.0, 287.0, 910.0,  12.0, 820.0,  31.0,  92.0, 217.0, 555.0,
+            std::f64::INFINITY,  81.0, 568.0, 241.0, 292.0, 653.0, 417.0, 652.0, 630.0, 788.0,
+            std::f64::INFINITY, 822.0, 788.0, 166.0, 122.0, 690.0, 304.0, 568.0, 449.0, 214.0,
+            std::f64::INFINITY, 469.0, 584.0, 633.0, 213.0, 414.0, 498.0, 500.0, 317.0, 391.0,
+            std::f64::INFINITY, 581.0, 183.0, 420.0,  16.0, 748.0,  35.0, 516.0, 639.0, 356.0,
+            std::f64::INFINITY, 921.0,  67.0,  33.0, 592.0, 775.0, 780.0, 335.0, 464.0, 788.0,
+            std::f64::INFINITY, 455.0, 950.0,  25.0,  22.0, 576.0, 969.0, 122.0,  86.0,  74.0,
+        ];
+        let m = Matrix::from_shape_vec((10,10), c).unwrap();
+        let result = lapjv(&m);
+    }
+
+
+    #[test]
     fn test_find_umins() {
         let m = Matrix::from_shape_vec((3,3), vec![25.0,0.0,15.0,4.0,5.0,6.0,7.0,8.0,9.0]).unwrap();
         let result = find_umins_plain(&m, 0, &vec![0.0,0.0,0.0]);
@@ -290,8 +352,17 @@ mod tests {
     }
 
     #[test]
-    fn test_huge_matrix() {
-        // let matrix = include!("../matrix.txt");
+    fn test_random() {
+        use rand::Rng;
+        let mut rng = rand::thread_rng();
+
+        const DIM: usize = 512;
+        let mut m = Vec::with_capacity(DIM*DIM);
+        for _ in 0..DIM*DIM {
+            m.push(rng.next_f64()*100.0);
+        }
+        let m = Matrix::from_shape_vec((DIM,DIM), m).unwrap();
+        let result = lapjv(&m);
     }
 
     #[bench]
@@ -299,20 +370,26 @@ mod tests {
         b.iter(|| test_solve_random10());
     }
 
+    #[bench]
+    fn bench_solve_random_inf1(b: &mut Bencher) {
+        b.iter(|| test_solve_random10());
+    }
+
+
     fn solve_random10() -> (Matrix<f64>, (Vec<isize>, Vec<isize>)) {
         const N: usize = 10;
         let c = vec![
-            612, 643, 717,   2, 946, 534, 242, 235, 376, 839,
-            224, 141, 799, 180, 386, 745, 592, 822, 421,  42,
-            241, 369, 831,  67, 258, 549, 615, 529, 458, 524,
-            231, 649, 287, 910,  12, 820,  31,  92, 217, 555,
-            912,  81, 568, 241, 292, 653, 417, 652, 630, 788,
-            32, 822, 788, 166, 122, 690, 304, 568, 449, 214,
-            441, 469, 584, 633, 213, 414, 498, 500, 317, 391,
-            798, 581, 183, 420,  16, 748,  35, 516, 639, 356,
-            351, 921,  67,  33, 592, 775, 780, 335, 464, 788,
-            771, 455, 950,  25,  22, 576, 969, 122,  86,  74,
-        ].iter().map(|x| *x as f64).collect();
+            612.0, 643.0, 717.0,   2.0, 946.0, 534.0, 242.0, 235.0, 376.0, 839.0,
+            224.0, 141.0, 799.0, 180.0, 386.0, 745.0, 592.0, 822.0, 421.0,  42.0,
+            241.0, 369.0, 831.0,  67.0, 258.0, 549.0, 615.0, 529.0, 458.0, 524.0,
+            231.0, 649.0, 287.0, 910.0,  12.0, 820.0,  31.0,  92.0, 217.0, 555.0,
+            912.0,  81.0, 568.0, 241.0, 292.0, 653.0, 417.0, 652.0, 630.0, 788.0,
+            32.0, 822.0, 788.0, 166.0, 122.0, 690.0, 304.0, 568.0, 449.0, 214.0,
+            441.0, 469.0, 584.0, 633.0, 213.0, 414.0, 498.0, 500.0, 317.0, 391.0,
+            798.0, 581.0, 183.0, 420.0,  16.0, 748.0,  35.0, 516.0, 639.0, 356.0,
+            351.0, 921.0,  67.0,  33.0, 592.0, 775.0, 780.0, 335.0, 464.0, 788.0,
+            771.0, 455.0, 950.0,  25.0,  22.0, 576.0, 969.0, 122.0,  86.0,  74.0,
+        ];
         let m = Matrix::from_shape_vec((N,N), c).unwrap();
         let result = lapjv(&m);
         (m, result)

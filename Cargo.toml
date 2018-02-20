@@ -5,3 +5,4 @@ authors = ["Andrii Dmytrenko <andrii.dmytrenko@deliveroo.co.uk>"]
 
 [dependencies]
 ndarray = "*"
+rand = "0.4"
