@@ -172,12 +172,8 @@ fn carr_dense(matrix: &Matrix<f64>, num_free_rows: usize, free_rows: &mut [usize
     new_free_rows
 }
 
-/** Single iteration of modified Dijkstra shortest path algorithm as explained in the JV paper.
- *
- * This is a dense matrix version.
- *
- * \return The closest free column index.
- */
+/// Single iteration of modified Dijkstra shortest path algorithm as explained in the JV paper.
+/// return The closest free column index.
 fn find_path_dense(matrix: &Matrix<f64>, start_i: usize, in_col: &mut [isize], v: &mut [f64], pred: &mut [usize]) -> usize {
     let dim = matrix.dim().0;
     let mut collist = vec![0; dim]; // list of columns to be scanned in various ways.
@@ -196,7 +192,8 @@ fn find_path_dense(matrix: &Matrix<f64>, start_i: usize, in_col: &mut [isize], v
     }
 
     // println!("d: {:?}", d);
-    loop {
+    let final_j;
+    'outer: loop {
         if lo == hi {
             // println!("{}..{} -> find", lo, hi);
             n_ready = lo;
@@ -207,7 +204,8 @@ fn find_path_dense(matrix: &Matrix<f64>, start_i: usize, in_col: &mut [isize], v
             for k in lo..hi {
                 let j = collist[k];
                 if in_col[j] < 0 {
-                    return j;
+                    final_j = j;
+                    break 'outer;
                 }
             }
         }
@@ -217,10 +215,18 @@ fn find_path_dense(matrix: &Matrix<f64>, start_i: usize, in_col: &mut [isize], v
         let (new_hi, new_lo, maybe_final_j) = scan_dense(matrix, lo, hi, &mut d, &mut collist, pred, in_col, v);
         hi = new_hi;
         lo = new_lo;
-        if let Some(final_j) = maybe_final_j {
-            return final_j;
+        if let Some(val) = maybe_final_j {
+            final_j = val;
+            break 'outer;
         }
     }
+
+    let mind = d[collist[lo]];
+    for k in 0..n_ready {
+        let j = collist[k];
+        v[j] += d[j] - mind;
+    }
+    final_j
 }
 
 fn find_dense(dim: usize, lo: usize, d: &mut [f64], collist: &mut [usize]) -> usize {
@@ -286,7 +292,7 @@ fn find_umins_plain(matrix: &Matrix<f64>, row: usize, v: &[f64]) -> (f64, f64, u
     let mut j1 = 0;
     let mut j2 = -1;
     for j in 1..local_cost.dim() {
-        let h = local_cost[j as usize] - v[j as usize];
+        let h = local_cost[j] - v[j as usize];
         if h < usubmin {
             if h >= umin {
                 usubmin = h;
