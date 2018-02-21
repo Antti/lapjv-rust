@@ -234,10 +234,11 @@ fn find_dense(dim: usize, lo: usize, d: &mut [f64], collist: &mut [usize]) -> us
     let mut min = d[collist[lo]];
     for k in hi..dim {
         let j = collist[k];
-        if d[j] <= min {
-            if d[j] < min { // new minimum.
+        let h = d[j];
+        if h <= min {
+            if h < min { // new minimum.
                 hi = lo; // restart list at index low.
-                min = d[j];
+                min = h;
             }
             // new index with same minimum, put on undex up, and extend list.
             collist[k] = collist[hi];
@@ -346,6 +347,7 @@ mod tests {
         ];
         let m = Matrix::from_shape_vec((10,10), c).unwrap();
         let result = lapjv(&m);
+        assert_eq!(result.0, vec![7, 9, 3, 0, 1, 4, 5, 6, 2, 8]);
     }
 
 
@@ -368,7 +370,7 @@ mod tests {
             m.push(rng.next_f64()*100.0);
         }
         let m = Matrix::from_shape_vec((DIM,DIM), m).unwrap();
-        let result = lapjv(&m);
+        let _result = lapjv(&m);
     }
 
     #[bench]
