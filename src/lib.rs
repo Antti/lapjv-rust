@@ -12,8 +12,8 @@ use std::ops;
 
 pub type Matrix<T> = ndarray::Array2<T>;
 
-pub trait LapJVCost: Float + ops::AddAssign + ops::SubAssign {}
-impl <T>LapJVCost for T where T: Float + ops::AddAssign + ops::SubAssign {}
+pub trait LapJVCost: Float + ops::AddAssign + ops::SubAssign + std::fmt::Debug {}
+impl <T>LapJVCost for T where T: Float + ops::AddAssign + ops::SubAssign + std::fmt::Debug {}
 
 pub struct LapJV<T> {
     matrix: Matrix<T>,
@@ -214,7 +214,7 @@ fn carr_dense<T>(matrix: &Matrix<T>, num_free_rows: usize, free_rows: &mut [usiz
 fn find_path_dense<T>(matrix: &Matrix<T>, start_i: usize, in_col: &mut [isize], v: &mut [T], pred: &mut [usize]) -> usize where T: LapJVCost {
     let dim = matrix.dim().0;
     let mut collist = vec![0; dim]; // list of columns to be scanned in various ways.
-    let mut d = vec![T::zero(); dim]; // 'cost-distance' in augmenting path calculation. // cost
+    let mut d = vec![T::zero(); dim]; // 'cost-distance' in augmenting path calculation.
 
     let mut lo = 0;
     let mut hi = 0;
@@ -249,9 +249,7 @@ fn find_path_dense<T>(matrix: &Matrix<T>, start_i: usize, in_col: &mut [isize], 
 
         // println!("{}..{} -> scan", lo, hi);
 
-        let (new_hi, new_lo, maybe_final_j) = scan_dense(matrix, lo, hi, &mut d, &mut collist, pred, in_col, v);
-        hi = new_hi;
-        lo = new_lo;
+        let maybe_final_j = scan_dense(matrix, &mut lo, &mut hi, &mut d, &mut collist, pred, in_col, v);
         if let Some(val) = maybe_final_j {
             final_j = val;
             break 'outer;
@@ -288,16 +286,16 @@ fn find_dense<T>(dim: usize, lo: usize, d: &mut [T], collist: &mut [usize]) -> u
 
 // Scan all columns in TODO starting from arbitrary column in SCAN
 // and try to decrease d of the TODO columns using the SCAN column.
-fn scan_dense<T>(matrix: &Matrix<T>, mut lo: usize, mut hi: usize, d: &mut [T], collist: &mut [usize], pred: &mut [usize], in_col: &mut [isize], v: &mut [T]) -> (usize, usize, Option<usize>)  where T: LapJVCost {
-    while lo != hi {
-        let j = collist[lo];
-        lo += 1;
+fn scan_dense<T>(matrix: &Matrix<T>, lo: &mut usize, hi: &mut usize, d: &mut [T], collist: &mut [usize], pred: &mut [usize], in_col: &mut [isize], v: &mut [T]) -> Option<usize>  where T: LapJVCost {
+    while *lo != *hi {
+        let j = collist[*lo];
+        *lo += 1;
         let i = in_col[j] as usize;
         let mind = d[j];
         let h = matrix[(i, j)] - v[j] - mind;
         // For all columns in TODO
 
-        for k in hi..matrix.dim().0 {
+        for k in *hi..matrix.dim().0 {
             let j = collist[k];
             let cred_ij = matrix[(i, j)] - v[j] - h;
             if cred_ij < d[j] {
@@ -305,16 +303,16 @@ fn scan_dense<T>(matrix: &Matrix<T>, mut lo: usize, mut hi: usize, d: &mut [T], 
                 pred[j] = i;
                 if (cred_ij - mind).abs() < T::epsilon() {
                     if in_col[j] < 0 {
-                        return (lo, hi, Some(j));
+                        return Some(j);
                     }
-                    collist[k] = collist[hi];
-                    collist[hi] = j;
-                    hi += 1;
+                    collist[k] = collist[*hi];
+                    collist[*hi] = j;
+                    *hi += 1;
                 }
             }
         }
     }
-    (lo, hi, None)
+    None
 }
 
 
@@ -381,6 +379,7 @@ mod tests {
         let m = Matrix::from_shape_vec((10,10), c).unwrap();
         let result = lapjv(&m);
         assert_eq!(result.0, vec![7, 9, 3, 0, 1, 4, 5, 6, 2, 8]);
+        assert!(false);
     }
 
 
