@@ -2,17 +2,62 @@
 
 extern crate ndarray;
 extern crate rand;
+extern crate num_traits;
 #[cfg(all(feature = "nightly", test))]
 extern crate test;
 
+use num_traits::{Bounded, Zero};
+
+use std::ops;
+
 pub type Matrix<T> = ndarray::Array2<T>;
 
+pub trait LapJVCost: Bounded + Clone + Copy + PartialOrd + ops::Sub<Output=Self> + ops::AddAssign + ops::SubAssign + Zero {}
+impl <T>LapJVCost for T where T: Bounded + Clone + Copy + PartialOrd + ops::Sub<Output=Self> + ops::AddAssign + ops::SubAssign + Zero {}
+
+pub struct LapJV<T> {
+    matrix: Matrix<T>,
+    v: Vec<T>,
+    free_rows: Vec<usize>,
+    in_row: Vec<isize>,
+    in_col: Vec<isize>,
+    num_free_rows: usize
+}
+
+impl <T>LapJV<T>  where T: LapJVCost {
+    pub fn new(matrix: Matrix<T>) -> Self {
+        let dim = matrix.dim().0;
+        Self {
+            matrix,
+            free_rows: vec![0; dim],
+            v: vec![T::max_value(); dim],
+            in_row: vec![-1; dim],
+            in_col: vec![0; dim],
+            num_free_rows: 0
+        }
+    }
+
+    pub fn solve(mut self) -> (Vec<isize>, Vec<isize>) {
+        let mut num_free_rows = ccrrt_dense(&self.matrix, &mut self.free_rows, &mut self.in_row, &mut self.in_col, &mut self.v);
+
+        let mut i = 0;
+        while num_free_rows > 0 && i < 2 {
+            num_free_rows = carr_dense(&self.matrix, self.num_free_rows, &mut self.free_rows, &mut self.in_row, &mut self.in_col, &mut self.v);
+            i+= 1;
+        }
+        if num_free_rows > 0 {
+            ca_dense(&self.matrix, self.num_free_rows, &mut self.free_rows, &mut self.in_row, &mut self.in_col, &mut self.v);
+        }
+        (self.in_row, self.in_col)
+    }
+}
+
 /// Jonker-Volgenant algorithm.
-pub fn lapjv(matrix: &Matrix<f64>) -> (Vec<isize>, Vec<isize>) {
+pub fn lapjv<T>(matrix: &Matrix<T>) -> (Vec<isize>, Vec<isize>) where T: LapJVCost {
     let dim = matrix.dim().0; // square matrix dimensions
     let mut free_rows = vec![0; dim]; // list of unassigned rows.
 
-    let mut v = vec![std::f64::MAX; dim];
+    let mut v = vec![T::max_value(); dim];
     let mut in_row = vec![-1; dim];
     let mut in_col = vec![0; dim];
 
@@ -31,7 +76,7 @@ pub fn lapjv(matrix: &Matrix<f64>) -> (Vec<isize>, Vec<isize>) {
     (in_row, in_col)
 }
 
-fn ccrrt_dense(matrix: &Matrix<f64>, free_rows: &mut [usize], in_row: &mut [isize], in_col: &mut[isize], v: &mut [f64]) -> usize {
+fn ccrrt_dense<T>(matrix: &Matrix<T>, free_rows: &mut [usize], in_row: &mut [isize], in_col: &mut[isize], v: &mut [T]) -> usize where T: LapJVCost {
     let dim = matrix.dim().0;
     let mut n_free_rows = 0;
     let mut unique = vec![true; dim];
@@ -62,7 +107,7 @@ fn ccrrt_dense(matrix: &Matrix<f64>, free_rows: &mut [usize], in_row: &mut [isiz
             n_free_rows +=  1;
         } else if unique[i] {
             let j = in_row[i];
-            let mut min = std::f64::MAX;
+            let mut min = T::max_value();
             for j2 in 0..dim {
                 if j2 == j as usize {
                     continue;
@@ -79,7 +124,7 @@ fn ccrrt_dense(matrix: &Matrix<f64>, free_rows: &mut [usize], in_row: &mut [isiz
 }
 
 // Augment for a dense cost matrix.
-fn ca_dense(matrix: &Matrix<f64>, num_free_rows: usize, free_rows: &mut [usize], in_row: &mut [isize], in_col: &mut [isize], v: &mut [f64]) {
+fn ca_dense<T>(matrix: &Matrix<T>, num_free_rows: usize, free_rows: &mut [usize], in_row: &mut [isize], in_col: &mut [isize], v: &mut [T])  where T: LapJVCost {
     let dim = matrix.dim().0;
     let mut pred = vec![0; dim];
 
@@ -106,7 +151,7 @@ fn ca_dense(matrix: &Matrix<f64>, num_free_rows: usize, free_rows: &mut [usize],
 }
 
 // Augmenting row reduction for a dense cost matrix.
-fn carr_dense(matrix: &Matrix<f64>, num_free_rows: usize, free_rows: &mut [usize], in_row: &mut [isize], in_col: &mut [isize], v: &mut [f64]) -> usize {
+fn carr_dense<T>(matrix: &Matrix<T>, num_free_rows: usize, free_rows: &mut [usize], in_row: &mut [isize], in_col: &mut [isize], v: &mut [T]) -> usize where T: LapJVCost {
     // AUGMENTING ROW REDUCTION
     // scan all free rows.
     // in some cases, a free row may be replaced with another one to be scanned next.
@@ -169,10 +214,10 @@ fn carr_dense(matrix: &Matrix<f64>, num_free_rows: usize, free_rows: &mut [usize
 
 /// Single iteration of modified Dijkstra shortest path algorithm as explained in the JV paper.
 /// return The closest free column index.
-fn find_path_dense(matrix: &Matrix<f64>, start_i: usize, in_col: &mut [isize], v: &mut [f64], pred: &mut [usize]) -> usize {
+fn find_path_dense<T>(matrix: &Matrix<T>, start_i: usize, in_col: &mut [isize], v: &mut [T], pred: &mut [usize]) -> usize where T: LapJVCost {
     let dim = matrix.dim().0;
     let mut collist = vec![0; dim]; // list of columns to be scanned in various ways.
-    let mut d = vec![0f64; dim]; // 'cost-distance' in augmenting path calculation. // cost
+    let mut d = vec![T::zero(); dim]; // 'cost-distance' in augmenting path calculation. // cost
 
     let mut lo = 0;
     let mut hi = 0;
@@ -224,7 +269,7 @@ fn find_path_dense(matrix: &Matrix<f64>, start_i: usize, in_col: &mut [isize], v
     final_j
 }
 
-fn find_dense(dim: usize, lo: usize, d: &mut [f64], collist: &mut [usize]) -> usize {
+fn find_dense<T>(dim: usize, lo: usize, d: &mut [T], collist: &mut [usize]) -> usize  where T: LapJVCost {
     let mut hi  = lo + 1;
     let mut min = d[collist[lo]];
     for k in hi..dim {
@@ -246,7 +291,7 @@ fn find_dense(dim: usize, lo: usize, d: &mut [f64], collist: &mut [usize]) -> us
 
 // Scan all columns in TODO starting from arbitrary column in SCAN
 // and try to decrease d of the TODO columns using the SCAN column.
-fn scan_dense(matrix: &Matrix<f64>, mut lo: usize, mut hi: usize, d: &mut [f64], collist: &mut [usize], pred: &mut [usize], in_col: &mut [isize], v: &mut [f64]) -> (usize, usize, Option<usize>) {
+fn scan_dense<T>(matrix: &Matrix<T>, mut lo: usize, mut hi: usize, d: &mut [T], collist: &mut [usize], pred: &mut [usize], in_col: &mut [isize], v: &mut [T]) -> (usize, usize, Option<usize>)  where T: LapJVCost {
     let mut h;
     let mut cred_ij;
 
@@ -281,10 +326,10 @@ fn scan_dense(matrix: &Matrix<f64>, mut lo: usize, mut hi: usize, d: &mut [f64],
 
 // Finds minimum and second minimum from a row, returns (min, second_min, min_index, second_min_index)
 #[inline(always)]
-fn find_umins_plain(matrix: &Matrix<f64>, row: usize, v: &[f64]) -> (f64, f64, usize, isize) {
+fn find_umins_plain<T>(matrix: &Matrix<T>, row: usize, v: &[T]) -> (T, T, usize, isize)  where T: LapJVCost {
     let local_cost = matrix.row(row);
     let mut umin = local_cost[0] - v[0];
-    let mut usubmin = std::f64::INFINITY;
+    let mut usubmin = T::max_value();
     let mut j1 = 0;
     let mut j2 = -1;
     for j in 1..local_cost.dim() {

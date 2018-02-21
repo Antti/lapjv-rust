@@ -8,8 +8,9 @@ build = "build.rs"
 nightly = []
 
 [dependencies]
-ndarray = "*"
+ndarray = "0.11"
 rand = "0.4"
+num-traits = "0.1"
 
 [build-dependencies]
 rustc_version = "0.2"
