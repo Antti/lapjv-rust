@@ -6,14 +6,14 @@ extern crate num_traits;
 #[cfg(all(feature = "nightly", test))]
 extern crate test;
 
-use num_traits::{Bounded, Zero};
+use num_traits::Float;
 
 use std::ops;
 
 pub type Matrix<T> = ndarray::Array2<T>;
 
-pub trait LapJVCost: Bounded + Clone + Copy + PartialOrd + ops::Sub<Output=Self> + ops::AddAssign + ops::SubAssign + Zero {}
-impl <T>LapJVCost for T where T: Bounded + Clone + Copy + PartialOrd + ops::Sub<Output=Self> + ops::AddAssign + ops::SubAssign + Zero {}
+pub trait LapJVCost: Float + ops::AddAssign + ops::SubAssign {}
+impl <T>LapJVCost for T where T: Float + ops::AddAssign + ops::SubAssign {}
 
 pub struct LapJV<T> {
     matrix: Matrix<T>,
@@ -56,7 +56,6 @@ impl <T>LapJV<T>  where T: LapJVCost {
 pub fn lapjv<T>(matrix: &Matrix<T>) -> (Vec<isize>, Vec<isize>) where T: LapJVCost {
     let dim = matrix.dim().0; // square matrix dimensions
     let mut free_rows = vec![0; dim]; // list of unassigned rows.
-
     let mut v = vec![T::max_value(); dim];
     let mut in_row = vec![-1; dim];
     let mut in_col = vec![0; dim];
@@ -67,10 +66,8 @@ pub fn lapjv<T>(matrix: &Matrix<T>) -> (Vec<isize>, Vec<isize>) where T: LapJVCo
     while num_free_rows > 0 && i < 2 {
         num_free_rows = carr_dense(matrix, num_free_rows, &mut free_rows, &mut in_row, &mut in_col, &mut v);
         i+= 1;
-        println!("lapjv: augmenting row reduction: {}/{}", i, 2);
     }
     if num_free_rows > 0 {
-        println!("lapjv: ca_dense with num_free_rows: {}", num_free_rows);
         ca_dense(matrix, num_free_rows, &mut free_rows, &mut in_row, &mut in_col, &mut v);
     }
     (in_row, in_col)
@@ -292,24 +289,21 @@ fn find_dense<T>(dim: usize, lo: usize, d: &mut [T], collist: &mut [usize]) -> u
 // Scan all columns in TODO starting from arbitrary column in SCAN
 // and try to decrease d of the TODO columns using the SCAN column.
 fn scan_dense<T>(matrix: &Matrix<T>, mut lo: usize, mut hi: usize, d: &mut [T], collist: &mut [usize], pred: &mut [usize], in_col: &mut [isize], v: &mut [T]) -> (usize, usize, Option<usize>)  where T: LapJVCost {
-    let mut h;
-    let mut cred_ij;
-
     while lo != hi {
         let j = collist[lo];
         lo += 1;
         let i = in_col[j] as usize;
         let mind = d[j];
-        h = matrix[(i, j)] - v[j] - mind;
+        let h = matrix[(i, j)] - v[j] - mind;
         // For all columns in TODO
 
         for k in hi..matrix.dim().0 {
             let j = collist[k];
-            cred_ij = matrix[(i, j)] - v[j] - h;
+            let cred_ij = matrix[(i, j)] - v[j] - h;
             if cred_ij < d[j] {
                 d[j] = cred_ij;
                 pred[j] = i;
-                if cred_ij == mind {
+                if (cred_ij - mind).abs() < T::epsilon() {
                     if in_col[j] < 0 {
                         return (lo, hi, Some(j));
                     }
