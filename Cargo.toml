@@ -2,7 +2,14 @@
 name = "lapjv"
 version = "0.1.0"
 authors = ["Andrii Dmytrenko <andrii.dmytrenko@deliveroo.co.uk>"]
+build = "build.rs"
+
+[features]
+nightly = []
 
 [dependencies]
 ndarray = "*"
 rand = "0.4"
+
+[build-dependencies]
+rustc_version = "0.2"

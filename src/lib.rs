@@ -1,8 +1,9 @@
-#![feature(test)]
+#![cfg_attr(all(feature = "nightly", test), feature(test))]
 
 extern crate ndarray;
 extern crate rand;
-#[cfg(test)] extern crate test;
+#[cfg(all(feature = "nightly", test))]
+extern crate test;
 
 pub type Matrix<T> = ndarray::Array2<T>;
 
@@ -129,7 +130,7 @@ fn carr_dense(matrix: &Matrix<f64>, num_free_rows: usize, free_rows: &mut [usize
         let free_i = free_rows[current];
         current += 1;
         // find minimum and second minimum reduced cost over columns.
-        let (v1, v2, mut j1, j2) = find_umins_plain(matrix, free_i, &v);
+        let (v1, v2, mut j1, j2) = find_umins_plain(matrix, free_i, v);
 
         let mut i0 = in_col[j1];
         let v1_new = v[j1] - (v2 - v1);
@@ -312,7 +313,6 @@ fn find_umins_plain(matrix: &Matrix<f64>, row: usize, v: &[f64]) -> (f64, f64, u
 #[cfg(test)]
 mod tests {
     use super::*;
-    use test::Bencher;
     use rand;
 
     #[test]
@@ -373,17 +373,6 @@ mod tests {
         let _result = lapjv(&m);
     }
 
-    #[bench]
-    fn bench_solve_random10(b: &mut Bencher) {
-        b.iter(|| test_solve_random10());
-    }
-
-    #[bench]
-    fn bench_solve_random_inf1(b: &mut Bencher) {
-        b.iter(|| test_solve_random10());
-    }
-
-
     fn solve_random10() -> (Matrix<f64>, (Vec<isize>, Vec<isize>)) {
         const N: usize = 10;
         let c = vec![
@@ -405,5 +394,21 @@ mod tests {
 
     fn cost(input: &Matrix<f64>, (rows, _cols): (&[isize], &[isize])) -> f64 {
         (0..rows.len()).into_iter().fold(0.0, |acc, i| acc + input[(i, rows[i] as usize)])
+    }
+
+    #[cfg(feature = "nightly")]
+    mod benches {
+        use test::Bencher;
+        use super::*;
+
+        #[bench]
+        fn bench_solve_random10(b: &mut Bencher) {
+            b.iter(|| test_solve_random10());
+        }
+
+        #[bench]
+        fn bench_solve_random_inf1(b: &mut Bencher) {
+            b.iter(|| test_solve_random10());
+        }
     }
 }
