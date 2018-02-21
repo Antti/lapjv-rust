@@ -46,19 +46,13 @@ fn ccrrt_dense(matrix: &Matrix<f64>, free_rows: &mut [usize], in_row: &mut [isiz
         }
     }
 
-
-    let mut j = dim;
-    loop {
-        j -= 1;
+    for j in (0..dim).into_iter().rev() {
         let i = in_col[j] as usize;
         if in_row[i] < 0 {
             in_row[i] = j as isize;
         } else {
             unique[i] = false;
             in_col[j] = -1;
-        }
-        if j == 0 {
-            break;
         }
     }
 
