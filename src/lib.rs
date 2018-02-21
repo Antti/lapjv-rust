@@ -3,6 +3,8 @@
 extern crate ndarray;
 extern crate rand;
 extern crate num_traits;
+#[macro_use]
+extern crate log;
 #[cfg(all(feature = "nightly", test))]
 extern crate test;
 
@@ -51,6 +53,16 @@ impl <T>LapJV<T>  where T: LapJVCost {
         (self.in_row, self.in_col)
     }
 }
+
+// macro_rules! debug_print {
+//     ($label:expr, $x:ident, $y:ident, $v:ident, $f:ident, $num_f:expr) => {
+//         trace!("After {}", $label);
+//         trace!("X {:?}", $x);
+//         trace!("Y {:?}", $y);
+//         trace!("V {:?}", $v);
+//         trace!("F({}) {:?}", $num_f, &$f[0..$num_f]);
+//     };
+// }
 
 /// Jonker-Volgenant algorithm.
 pub fn lapjv<T>(matrix: &Matrix<T>) -> (Vec<isize>, Vec<isize>) where T: LapJVCost {
@@ -127,7 +139,7 @@ fn ca_dense<T>(matrix: &Matrix<T>, num_free_rows: usize, free_rows: &mut [usize]
 
     for f in 0..num_free_rows {
         let freerow = free_rows[f];
-        // println!("looking at free_i={}", freerow);
+        trace!("looking at free_i={}", freerow);
 
         let mut i = std::usize::MAX;
         let mut k = 0;
@@ -157,10 +169,6 @@ fn carr_dense<T>(matrix: &Matrix<T>, num_free_rows: usize, free_rows: &mut [usiz
     let mut new_free_rows = 0; // start list of rows still free after augmenting row reduction.
     let mut rr_cnt = 0;
 
-    // println!("X {:?}", in_row);
-    // println!("Y {:?}", in_col);
-    // println!("V {:?}", v);
-    // println!("F({}) {:?}", num_free_rows, &free_rows[0..num_free_rows]);
     while current < num_free_rows {
         rr_cnt += 1;
         let free_i = free_rows[current];
@@ -228,57 +236,57 @@ fn find_path_dense<T>(matrix: &Matrix<T>, start_i: usize, in_col: &mut [isize], 
         d[i] = matrix[(start_i, i)] - v[i];
     }
 
-    // println!("d: {:?}", d);
-    let final_j;
-    'outer: loop {
+    trace!("d: {:?}", d);
+    let mut final_j = -1isize;
+    while  final_j == -1 {
         if lo == hi {
-            // println!("{}..{} -> find", lo, hi);
+            trace!("{}..{} -> find", lo, hi);
             n_ready = lo;
-            hi = find_dense(dim, lo, &mut d, &mut collist);
-            // println!("check {}..{}", lo, hi);
+            hi = find_dense(dim, lo, &d, &mut collist);
+            trace!("check {}..{}", lo, hi);
             // check if any of the minimum columns happens to be unassigned.
             // if so, we have an augmenting path right away.
             for k in lo..hi {
                 let j = collist[k];
                 if in_col[j] < 0 {
-                    final_j = j;
-                    break 'outer;
+                    final_j = j as isize;
                 }
             }
         }
 
-        // println!("{}..{} -> scan", lo, hi);
-
-        let maybe_final_j = scan_dense(matrix, &mut lo, &mut hi, &mut d, &mut collist, pred, in_col, v);
-        if let Some(val) = maybe_final_j {
-            final_j = val;
-            break 'outer;
+        if final_j == -1 {
+            trace!("{}..{} -> scan", lo, hi);
+            let maybe_final_j = scan_dense(matrix, &mut lo, &mut hi, &mut d, &mut collist, pred, in_col, v);
+            if let Some(val) = maybe_final_j {
+                final_j = val as isize;
+            }
         }
     }
 
+    trace!("found final_j={}", final_j);
     let mind = d[collist[lo]];
     for k in 0..n_ready {
         let j = collist[k];
         v[j] += d[j] - mind;
     }
-    final_j
+    final_j as usize
 }
 
-fn find_dense<T>(dim: usize, lo: usize, d: &mut [T], collist: &mut [usize]) -> usize  where T: LapJVCost {
+fn find_dense<T>(dim: usize, lo: usize, d: &[T], collist: &mut [usize]) -> usize  where T: LapJVCost {
     let mut hi  = lo + 1;
-    let mut min = d[collist[lo]];
+    let mut mind = d[collist[lo]];
     for k in hi..dim {
         let j = collist[k];
         let h = d[j];
-        if h <= min {
-            if h < min { // new minimum.
+        if h <= mind {
+            if h < mind { // new minimum.
                 hi = lo; // restart list at index low.
-                min = h;
+                mind = h;
             }
             // new index with same minimum, put on undex up, and extend list.
             collist[k] = collist[hi];
             collist[hi] = j;
-            hi+=1;
+            hi += 1;
         }
     }
     hi
@@ -286,32 +294,37 @@ fn find_dense<T>(dim: usize, lo: usize, d: &mut [T], collist: &mut [usize]) -> u
 
 // Scan all columns in TODO starting from arbitrary column in SCAN
 // and try to decrease d of the TODO columns using the SCAN column.
-fn scan_dense<T>(matrix: &Matrix<T>, lo: &mut usize, hi: &mut usize, d: &mut [T], collist: &mut [usize], pred: &mut [usize], in_col: &mut [isize], v: &mut [T]) -> Option<usize>  where T: LapJVCost {
-    while *lo != *hi {
-        let j = collist[*lo];
-        *lo += 1;
+fn scan_dense<T>(matrix: &Matrix<T>, plo: &mut usize, phi: &mut usize, d: &mut [T], collist: &mut [usize], pred: &mut [usize], in_col: &[isize], v: &[T]) -> Option<usize>  where T: LapJVCost {
+    let mut lo = *plo;
+    let mut hi = *phi;
+    while lo != hi {
+        let j = collist[lo];
+        lo += 1;
         let i = in_col[j] as usize;
         let mind = d[j];
         let h = matrix[(i, j)] - v[j] - mind;
         // For all columns in TODO
 
-        for k in *hi..matrix.dim().0 {
+        for k in hi..matrix.dim().0 {
             let j = collist[k];
             let cred_ij = matrix[(i, j)] - v[j] - h;
             if cred_ij < d[j] {
                 d[j] = cred_ij;
                 pred[j] = i;
                 if (cred_ij - mind).abs() < T::epsilon() {
+                // if cred_ij == mind {
                     if in_col[j] < 0 {
                         return Some(j);
                     }
-                    collist[k] = collist[*hi];
-                    collist[*hi] = j;
-                    *hi += 1;
+                    collist[k] = collist[hi];
+                    collist[hi] = j;
+                    hi += 1;
                 }
             }
         }
     }
+    *plo = lo;
+    *phi = hi;
     None
 }
 
@@ -379,7 +392,6 @@ mod tests {
         let m = Matrix::from_shape_vec((10,10), c).unwrap();
         let result = lapjv(&m);
         assert_eq!(result.0, vec![7, 9, 3, 0, 1, 4, 5, 6, 2, 8]);
-        assert!(false);
     }
 
 

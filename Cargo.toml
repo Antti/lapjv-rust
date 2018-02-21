@@ -11,6 +11,7 @@ nightly = []
 ndarray = "0.11"
 rand = "0.4"
 num-traits = "0.1"
+log = "0.4"
 
 [build-dependencies]
 rustc_version = "0.2"
