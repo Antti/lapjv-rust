@@ -11,7 +11,8 @@ nightly = []
 ndarray = "0.11"
 rand = "0.4"
 num-traits = "0.1"
-log = "0.4"
+log = { version = "0.4", features = ["max_level_debug", "release_max_level_warn"] }
+failure = "0.1"
 
 [build-dependencies]
 rustc_version = "0.2"
