@@ -33,216 +33,283 @@ impl std::error::Error for LapJVError {
     }
 }
 
+pub struct LapJV<'a, T: 'a> {
+    costs: &'a Matrix<T>,
+    dim: usize,
+    free_rows: Vec<usize>,
+    v: Vec<T>,
+    in_col: Vec<isize>,
+    in_row: Vec<isize>
+}
+
 /// Solve LAP problem given cost matrix
 /// This is an implementation of the LAPJV algorithm described in:
 /// R. Jonker, A. Volgenant. A Shortest Augmenting Path Algorithm for
 /// Dense and Sparse Linear Assignment Problems. Computing 38, 325-340
 /// (1987)
 pub fn lapjv<T>(costs: &Matrix<T>) -> Result<(Vec<isize>, Vec<isize>), LapJVError> where T: LapJVCost {
-    if costs.dim().0 != costs.dim().1 {
-        return Err(LapJVError("Input error: matrix is not square"))
-    }
-    let dim = costs.dim().0; // square matrix dimensions
-    let mut free_rows = Vec::with_capacity(dim); // list of unassigned rows.
-    let mut v = vec![T::max_value(); dim];
-    let mut in_row = vec![-1; dim];
-    let mut in_col = vec![0; dim];
-
-    ccrrt_dense(costs, &mut free_rows, &mut in_row, &mut in_col, &mut v);
-
-    let mut i = 0;
-    while free_rows.len() > 0 && i < 2 {
-        carr_dense(costs, &mut free_rows, &mut in_row, &mut in_col, &mut v);
-        i+= 1;
-    }
-    if free_rows.len() > 0 {
-        ca_dense(costs, &mut free_rows, &mut in_row, &mut in_col, &mut v)?;
-    }
-    Ok((in_row, in_col))
+    LapJV::new(costs).solve()
 }
 
 pub fn cost<T>(input: &Matrix<T>, x: &[isize]) -> T where T: LapJVCost {
     (0..x.len()).into_iter().fold(T::zero(), |acc, i| acc + input[(i, x[i] as usize)])
 }
 
-
-fn ccrrt_dense<T>(costs: &Matrix<T>, free_rows: &mut Vec<usize>, in_row: &mut [isize], in_col: &mut[isize], v: &mut [T]) where T: LapJVCost {
-    let dim = costs.dim().0;
-    let mut unique = vec![true; dim];
-
-    for ((i, j), &c) in costs.indexed_iter() {
-        if c < v[j] {
-            v[j] = c;
-            in_col[j] = i as isize;
+/// Solve LAP problem given cost matrix
+/// This is an implementation of the LAPJV algorithm described in:
+/// R. Jonker, A. Volgenant. A Shortest Augmenting Path Algorithm for
+/// Dense and Sparse Linear Assignment Problems. Computing 38, 325-340
+/// (1987)
+impl <'a, T>LapJV<'a, T> where T: LapJVCost {
+    pub fn new(costs: &'a Matrix<T>) -> Self {
+        let dim = costs.dim().0; // square matrix dimensions
+        let free_rows = Vec::with_capacity(dim); // list of unassigned rows.
+        let v = vec![T::max_value(); dim];
+        let in_row = vec![-1; dim];
+        let in_col = vec![0; dim];
+        Self {
+            costs,
+            dim,
+            free_rows,
+            v,
+            in_col,
+            in_row
         }
     }
 
-    for j in (0..dim).into_iter().rev() {
-        let i = in_col[j] as usize;
-        if in_row[i] < 0 {
-            in_row[i] = j as isize;
-        } else {
-            unique[i] = false;
-            in_col[j] = -1;
+    pub fn solve(mut self) ->  Result<(Vec<isize>, Vec<isize>), LapJVError> {
+        if self.costs.dim().0 != self.costs.dim().1 {
+            return Err(LapJVError("Input error: matrix is not square"))
         }
+        self.ccrrt_dense();
+
+        let mut i = 0;
+        while self.free_rows.len() > 0 && i < 2 {
+            self.carr_dense();
+            i+= 1;
+        }
+
+        if self.free_rows.len() > 0 {
+            self.ca_dense()?;
+        }
+
+        Ok((self.in_row, self.in_col))
     }
 
-    for i in 0..dim {
-        if in_row[i] < 0 {
-            free_rows.push(i);
-        } else if unique[i] {
-            let j = in_row[i];
-            let mut min = T::max_value();
-            for j2 in 0..dim {
-                if j2 == j as usize {
-                    continue;
+    fn ccrrt_dense(&mut self) {
+        let mut unique = vec![true; self.dim];
+
+        for ((i, j), &c) in self.costs.indexed_iter() {
+            if c < self.v[j] {
+                self.v[j] = c;
+                self.in_col[j] = i as isize;
+            }
+        }
+
+        for j in (0..self.dim).into_iter().rev() {
+            let i = self.in_col[j] as usize;
+            if self.in_row[i] < 0 {
+                self.in_row[i] = j as isize;
+            } else {
+                unique[i] = false;
+                self.in_col[j] = -1;
+            }
+        }
+
+        for i in 0..self.dim {
+            if self.in_row[i] < 0 {
+                self.free_rows.push(i);
+            } else if unique[i] {
+                let j = self.in_row[i];
+                let mut min = T::max_value();
+                for j2 in 0..self.dim {
+                    if j2 == j as usize {
+                        continue;
+                    }
+                    let c = self.costs[(i, j2)] - self.v[j2];
+                    if c < min {
+                        min = c;
+                    }
                 }
-                let c = costs[(i, j2)] - v[j2];
-                if c < min {
-                    min = c;
-                }
-            }
-            v[j as usize] -= min;
-        }
-    }
-}
-
-// Augment for a dense cost matrix.
-fn ca_dense<T>(costs: &Matrix<T>, free_rows: &mut [usize], in_row: &mut [isize], in_col: &mut [isize], v: &mut [T]) -> Result<(), LapJVError>  where T: LapJVCost {
-    let dim = costs.dim().0;
-    let mut pred = vec![0; dim];
-
-    for &mut freerow in free_rows {
-        trace!("looking at free_i={}", freerow);
-
-        let mut i = std::usize::MAX;
-        let mut k = 0;
-        let mut j = find_path_dense(costs, freerow, in_col, v, &mut pred);
-        assert!(j < dim);
-        while i != freerow {
-            i = pred[j];
-            in_col[j] = i as isize;
-            let tmp = j;
-            j = in_row[i] as usize;
-            in_row[i] = tmp as isize;
-            k += 1;
-            if k >= dim {
-                return Err(LapJVError("Error: ca_dense will not finish"))
+                self.v[j as usize] -= min;
             }
         }
     }
-    Ok(())
-}
 
-// Augmenting row reduction for a dense cost matrix.
-fn carr_dense<T>(costs: &Matrix<T>, free_rows: &mut Vec<usize>, in_row: &mut [isize], in_col: &mut [isize], v: &mut [T]) where T: LapJVCost {
-    // AUGMENTING ROW REDUCTION
-    // scan all free rows.
-    // in some cases, a free row may be replaced with another one to be scanned next.
-    let dim = costs.dim().0;
-    let mut current = 0;
-    let mut new_free_rows = 0; // start list of rows still free after augmenting row reduction.
-    let mut rr_cnt = 0;
-    let num_free_rows = free_rows.len();
+    // Augmenting row reduction for a dense cost matrix.
+    fn carr_dense(&mut self) {
+        // AUGMENTING ROW REDUCTION
+        // scan all free rows.
+        // in some cases, a free row may be replaced with another one to be scanned next.
+        let dim = self.dim;
+        let mut current = 0;
+        let mut new_free_rows = 0; // start list of rows still free after augmenting row reduction.
+        let mut rr_cnt = 0;
+        let num_free_rows = self.free_rows.len();
 
-    while current < num_free_rows {
-        rr_cnt += 1;
-        let free_i = free_rows[current];
-        current += 1;
-        // find minimum and second minimum reduced cost over columns.
-        let (v1, v2, mut j1, j2) = find_umins_plain(costs, free_i, v);
+        while current < num_free_rows {
+            rr_cnt += 1;
+            let free_i = self.free_rows[current];
+            current += 1;
+            // find minimum and second minimum reduced cost over columns.
+            let (v1, v2, mut j1, j2) = find_umins_plain(self.costs, free_i, &mut self.v);
 
-        let mut i0 = in_col[j1];
-        let v1_new = v[j1] - (v2 - v1);
-        let v1_lowers = v1_new < v[j1];  // the trick to eliminate the epsilon bug
+            let mut i0 = self.in_col[j1];
+            let v1_new = self.v[j1] - (v2 - v1);
+            let v1_lowers = v1_new < self.v[j1];  // the trick to eliminate the epsilon bug
 
-        if rr_cnt < current * dim {
-            if v1_lowers {
-                // change the reduction of the minimum column to increase the minimum
-                // reduced cost in the row to the subminimum.
-                v[j1] = v1_new;
-            } else if i0 >= 0 && j2 >= 0 { // minimum and subminimum equal.
-                // minimum column j1 is assigned.
-                // swap columns j1 and j2, as j2 may be unassigned.
-                j1 = j2 as usize;
-                i0 = in_col[j2 as usize];
-            }
-            if i0 >= 0 { // minimum column j1 assigned earlier.
+            if rr_cnt < current * dim {
                 if v1_lowers {
-                    // put in current k, and go back to that k.
-                    // continue augmenting path i - j1 with i0.
-                    current -= 1;
-                    free_rows[current] = i0 as usize;
-                } else {
-                    // no further augmenting reduction possible.
-                    // store i0 in list of free rows for next phase.
-                    free_rows[new_free_rows] = i0 as usize;
+                    // change the reduction of the minimum column to increase the minimum
+                    // reduced cost in the row to the subminimum.
+                    self.v[j1] = v1_new;
+                } else if i0 >= 0 && j2 >= 0 { // minimum and subminimum equal.
+                    // minimum column j1 is assigned.
+                    // swap columns j1 and j2, as j2 may be unassigned.
+                    j1 = j2 as usize;
+                    i0 = self.in_col[j2 as usize];
+                }
+                if i0 >= 0 { // minimum column j1 assigned earlier.
+                    if v1_lowers {
+                        // put in current k, and go back to that k.
+                        // continue augmenting path i - j1 with i0.
+                        current -= 1;
+                        self.free_rows[current] = i0 as usize;
+                    } else {
+                        // no further augmenting reduction possible.
+                        // store i0 in list of free rows for next phase.
+                        self.free_rows[new_free_rows] = i0 as usize;
+                        new_free_rows += 1;
+                    }
+                }
+            } else {
+                if i0 >= 0 {
+                    self.free_rows[new_free_rows] = i0 as usize;
                     new_free_rows += 1;
                 }
             }
-        } else {
-            if i0 >= 0 {
-                free_rows[new_free_rows] = i0 as usize;
-                new_free_rows += 1;
+            self.in_row[free_i] = j1 as isize;
+            self.in_col[j1] = free_i as isize;
+        }
+        self.free_rows.truncate(new_free_rows);
+    }
+
+
+    // Augment for a dense cost matrix.
+    fn ca_dense(&mut self) -> Result<(), LapJVError> {
+        let dim = self.dim;
+        let mut pred = vec![0; dim];
+
+        let free_rows = std::mem::replace(&mut self.free_rows, vec![]);
+        for freerow in free_rows {
+            trace!("looking at free_i={}", freerow);
+
+            let mut i = std::usize::MAX;
+            let mut k = 0;
+            let mut j = self.find_path_dense(freerow, &mut pred);
+            assert!(j < dim);
+            while i != freerow {
+                i = pred[j];
+                self.in_col[j] = i as isize;
+                let tmp = j;
+                j = self.in_row[i] as usize;
+                self.in_row[i] = tmp as isize;
+                k += 1;
+                if k >= dim {
+                    return Err(LapJVError("Error: ca_dense will not finish"))
+                }
             }
         }
-        in_row[free_i] = j1 as isize;
-        in_col[j1] = free_i as isize;
-    }
-    free_rows.truncate(new_free_rows);
-}
-
-/// Single iteration of modified Dijkstra shortest path algorithm as explained in the JV paper.
-/// return The closest free column index.
-fn find_path_dense<T>(costs: &Matrix<T>, start_i: usize, in_col: &mut [isize], v: &mut [T], pred: &mut [usize]) -> usize where T: LapJVCost {
-    let dim = costs.dim().0;
-    let mut collist = vec![0; dim]; // list of columns to be scanned in various ways.
-    let mut d = vec![T::zero(); dim]; // 'cost-distance' in augmenting path calculation.
-
-    let mut lo = 0;
-    let mut hi = 0;
-    let mut n_ready = 0;
-
-    // Dijkstra shortest path algorithm.
-    // runs until unassigned column added to shortest path tree.
-    for i in 0..dim {
-        collist[i] = i;
-        pred[i] = start_i;
-        d[i] = costs[(start_i, i)] - v[i];
+        Ok(())
     }
 
-    trace!("d: {:?}", d);
-    let mut final_j = -1isize;
-    while  final_j == -1 {
-        if lo == hi {
-            trace!("{}..{} -> find", lo, hi);
-            n_ready = lo;
-            hi = find_dense(dim, lo, &d, &mut collist);
-            trace!("check {}..{}", lo, hi);
-            // check if any of the minimum columns happens to be unassigned.
-            // if so, we have an augmenting path right away.
-            for &j in collist.iter().take(hi).skip(lo) {
-                if in_col[j] < 0 {
-                    final_j = j as isize;
+        /// Single iteration of modified Dijkstra shortest path algorithm as explained in the JV paper.
+    /// return The closest free column index.
+    fn find_path_dense(&mut self, start_i: usize, pred: &mut [usize]) -> usize {
+        let dim = self.dim;
+        let mut collist = vec![0; dim]; // list of columns to be scanned in various ways.
+        let mut d = vec![T::zero(); dim]; // 'cost-distance' in augmenting path calculation.
+
+        let mut lo = 0;
+        let mut hi = 0;
+        let mut n_ready = 0;
+
+        // Dijkstra shortest path algorithm.
+        // runs until unassigned column added to shortest path tree.
+        for i in 0..dim {
+            collist[i] = i;
+            pred[i] = start_i;
+            d[i] = self.costs[(start_i, i)] - self.v[i];
+        }
+
+        trace!("d: {:?}", d);
+        let mut final_j = -1isize;
+        while  final_j == -1 {
+            if lo == hi {
+                trace!("{}..{} -> find", lo, hi);
+                n_ready = lo;
+                hi = find_dense(dim, lo, &d, &mut collist);
+                trace!("check {}..{}", lo, hi);
+                // check if any of the minimum columns happens to be unassigned.
+                // if so, we have an augmenting path right away.
+                for &j in collist.iter().take(hi).skip(lo) {
+                    if self.in_col[j] < 0 {
+                        final_j = j as isize;
+                    }
+                }
+            }
+
+            if final_j == -1 {
+                trace!("{}..{} -> scan", lo, hi);
+                let maybe_final_j = self.scan_dense(&mut lo, &mut hi, &mut d, &mut collist, pred);
+                if let Some(val) = maybe_final_j {
+                    final_j = val as isize;
                 }
             }
         }
 
-        if final_j == -1 {
-            trace!("{}..{} -> scan", lo, hi);
-            let maybe_final_j = scan_dense(costs, &mut lo, &mut hi, &mut d, &mut collist, pred, in_col, v);
-            if let Some(val) = maybe_final_j {
-                final_j = val as isize;
+        trace!("found final_j={}", final_j);
+        let mind = d[collist[lo]];
+        for &j in collist.iter().take(n_ready) {
+            self.v[j] += d[j] - mind;
+        }
+        final_j as usize
+    }
+    // Scan all columns in TODO starting from arbitrary column in SCAN
+    // and try to decrease d of the TODO columns using the SCAN column.
+    fn scan_dense(&self, plo: &mut usize, phi: &mut usize, d: &mut [T], collist: &mut [usize], pred: &mut [usize]) -> Option<usize>  {
+        let mut lo = *plo;
+        let mut hi = *phi;
+        while lo != hi {
+            let j = collist[lo];
+            lo += 1;
+            let i = self.in_col[j] as usize;
+            let mind = d[j];
+            let h = self.costs[(i, j)] - self.v[j] - mind;
+            // For all columns in TODO
+            for k in hi..collist.len() {
+                let j = collist[k];
+                let cred_ij = self.costs[(i, j)] - self.v[j] - h;
+                if cred_ij < d[j] {
+                    d[j] = cred_ij;
+                    pred[j] = i;
+                    if (cred_ij - mind).abs() < T::epsilon() {
+                    // if cred_ij == mind {
+                        if self.in_col[j] < 0 {
+                            return Some(j);
+                        }
+                        collist[k] = collist[hi];
+                        collist[hi] = j;
+                        hi += 1;
+                    }
+                }
             }
         }
+        // Note: only change lo and hi if the item was not found
+        *plo = lo;
+        *phi = hi;
+        None
     }
-
-    trace!("found final_j={}", final_j);
-    let mind = d[collist[lo]];
-    for &j in collist.iter().take(n_ready) {
-        v[j] += d[j] - mind;
-    }
-    final_j as usize
 }
 
 fn find_dense<T>(dim: usize, lo: usize, d: &[T], collist: &mut [usize]) -> usize  where T: LapJVCost {
@@ -264,43 +331,6 @@ fn find_dense<T>(dim: usize, lo: usize, d: &[T], collist: &mut [usize]) -> usize
     }
     hi
 }
-
-// Scan all columns in TODO starting from arbitrary column in SCAN
-// and try to decrease d of the TODO columns using the SCAN column.
-fn scan_dense<T>(costs: &Matrix<T>, plo: &mut usize, phi: &mut usize, d: &mut [T], collist: &mut [usize], pred: &mut [usize], in_col: &[isize], v: &[T]) -> Option<usize>  where T: LapJVCost {
-    let mut lo = *plo;
-    let mut hi = *phi;
-    while lo != hi {
-        let j = collist[lo];
-        lo += 1;
-        let i = in_col[j] as usize;
-        let mind = d[j];
-        let h = costs[(i, j)] - v[j] - mind;
-        // For all columns in TODO
-        for k in hi..collist.len() {
-            let j = collist[k];
-            let cred_ij = costs[(i, j)] - v[j] - h;
-            if cred_ij < d[j] {
-                d[j] = cred_ij;
-                pred[j] = i;
-                if (cred_ij - mind).abs() < T::epsilon() {
-                // if cred_ij == mind {
-                    if in_col[j] < 0 {
-                        return Some(j);
-                    }
-                    collist[k] = collist[hi];
-                    collist[hi] = j;
-                    hi += 1;
-                }
-            }
-        }
-    }
-    // Note: only change lo and hi if the item was not found
-    *plo = lo;
-    *phi = hi;
-    None
-}
-
 
 // Finds minimum and second minimum from a row, returns (min, second_min, min_index, second_min_index)
 #[inline(always)]
