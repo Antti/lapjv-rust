@@ -2,6 +2,12 @@
 name = "lapjv"
 version = "0.1.0"
 authors = ["Andrii Dmytrenko <andrii.dmytrenko@deliveroo.co.uk>"]
+description = "Linear Assignmment Problem solve using Jonker-Volgenant algorithm"
+license = "MIT"
+documentation = "https://docs.rs/lapjv"
+homepage = "https://github.com/Antti/lapjv-rust"
+repository = "https://github.com/Antti/lapjv-rust.git"
+
 build = "build.rs"
 include = [
     "**/*.rs",
