@@ -162,7 +162,7 @@ impl <'a, T>LapJV<'a, T> where T: LapJVCost {
             let free_i = self.free_rows[current];
             current += 1;
             // find minimum and second minimum reduced cost over columns.
-            let (v1, v2, mut j1, j2) = find_umins_plain(self.costs, free_i, &self.v);
+            let (v1, v2, mut j1, j2) = find_umins_plain(self.costs.row(free_i), &self.v);
 
             let mut i0 = self.in_col[j1];
             let v1_new = self.v[j1] - (v2 - v1);
@@ -353,8 +353,7 @@ fn find_dense<T>(dim: usize, lo: usize, d: &[T], collist: &mut [usize]) -> usize
 
 // Finds minimum and second minimum from a row, returns (min, second_min, min_index, second_min_index)
 #[inline(always)]
-fn find_umins_plain<T>(matrix: &Matrix<T>, row: usize, v: &[T]) -> (T, T, usize, Option<usize>)  where T: LapJVCost {
-    let local_cost = matrix.row(row);
+fn find_umins_plain<T>(local_cost: ndarray::ArrayView1<T>, v: &[T]) -> (T, T, usize, Option<usize>)  where T: LapJVCost{
     let mut umin = local_cost[0] - v[0];
     let mut usubmin = T::max_value();
     let mut j1 = 0;
@@ -422,7 +421,7 @@ mod tests {
     #[test]
     fn test_find_umins() {
         let m = Matrix::from_shape_vec((3,3), vec![25.0,0.0,15.0,4.0,5.0,6.0,7.0,8.0,9.0]).unwrap();
-        let result = find_umins_plain(&m, 0, &vec![0.0,0.0,0.0]);
+        let result = find_umins_plain(m.row(0), &vec![0.0,0.0,0.0]);
         println!("Result: {:?}", result);
         assert_eq!(result,(0.0, 15.0, 1, Some(2)));
     }

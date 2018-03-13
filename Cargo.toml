@@ -3,6 +3,12 @@ name = "lapjv"
 version = "0.1.0"
 authors = ["Andrii Dmytrenko <andrii.dmytrenko@deliveroo.co.uk>"]
 build = "build.rs"
+include = [
+    "**/*.rs",
+    "build.rs",
+    "Cargo.toml",
+    "README.md"
+]
 
 [features]
 nightly = []
@@ -15,3 +21,4 @@ log = { version = "0.4", features = ["max_level_debug", "release_max_level_warn"
 
 [build-dependencies]
 rustc_version = "0.2"
+
