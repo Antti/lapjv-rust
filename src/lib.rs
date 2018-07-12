@@ -96,6 +96,7 @@ impl <'a, T>LapJV<'a, T> where T: LapJVCost {
         Ok((self.in_row, self.in_col))
     }
 
+    // Column-reduction and reduction transfer for a dense cost matrix
     fn ccrrt_dense(&mut self) {
         let mut unique = vec![true; self.dim];
         let mut in_row_not_set = vec![true; self.dim];
@@ -146,7 +147,7 @@ impl <'a, T>LapJV<'a, T> where T: LapJVCost {
         }
     }
 
-    // Augmenting row reduction for a dense cost matrix.
+    // Augmenting row reduction for a dense cost matrix
     fn carr_dense(&mut self) {
         // AUGMENTING ROW REDUCTION
         // scan all free rows.
@@ -192,11 +193,9 @@ impl <'a, T>LapJV<'a, T> where T: LapJVCost {
                         new_free_rows += 1;
                     }
                 }
-            } else {
-                if i0 != std::usize::MAX {
-                    self.free_rows[new_free_rows] = i0;
-                    new_free_rows += 1;
-                }
+            } else if i0 != std::usize::MAX {
+                self.free_rows[new_free_rows] = i0;
+                new_free_rows += 1;
             }
             self.in_row[free_i] = j1;
             self.in_col[j1] = free_i;
@@ -205,7 +204,7 @@ impl <'a, T>LapJV<'a, T> where T: LapJVCost {
     }
 
 
-    // Augment for a dense cost matrix.
+    // Augment for a dense cost matrix
     fn ca_dense(&mut self) -> Result<(), LapJVError> {
         let dim = self.dim;
         let mut pred = vec![0; dim];
@@ -217,7 +216,7 @@ impl <'a, T>LapJV<'a, T> where T: LapJVCost {
             let mut i = std::usize::MAX;
             let mut k = 0;
             let mut j = self.find_path_dense(freerow, &mut pred);
-            assert!(j < dim);
+            debug_assert!(j < dim);
             while i != freerow {
                 i = pred[j];
                 self.in_col[j] = i;
@@ -232,8 +231,8 @@ impl <'a, T>LapJV<'a, T> where T: LapJVCost {
         Ok(())
     }
 
-        /// Single iteration of modified Dijkstra shortest path algorithm as explained in the JV paper.
-    /// return The closest free column index.
+    /// Single iteration of modified Dijkstra shortest path algorithm as explained in the JV paper
+    /// return The closest free column index
     fn find_path_dense(&mut self, start_i: usize, pred: &mut [usize]) -> usize {
         let dim = self.dim;
         let mut collist = Vec::with_capacity(dim); // list of columns to be scanned in various ways.
@@ -285,7 +284,7 @@ impl <'a, T>LapJV<'a, T> where T: LapJVCost {
         final_j.unwrap()
     }
     // Scan all columns in TODO starting from arbitrary column in SCAN
-    // and try to decrease d of the TODO columns using the SCAN column.
+    // and try to decrease d of the TODO columns using the SCAN column
     fn scan_dense(&self, plo: &mut usize, phi: &mut usize, d: &mut [T], collist: &mut [usize], pred: &mut [usize]) -> Option<usize>  {
         let mut lo = *plo;
         let mut hi = *phi;
@@ -302,8 +301,7 @@ impl <'a, T>LapJV<'a, T> where T: LapJVCost {
                 if cred_ij < d[j] {
                     d[j] = cred_ij;
                     pred[j] = i;
-                    if (cred_ij - mind).abs() < T::epsilon() {
-                    // if cred_ij == mind {
+                    if (cred_ij - mind).abs() < T::epsilon() { // if cred_ij == mind {
                         if self.in_col[j] == std::usize::MAX {
                             return Some(j);
                         }
