@@ -51,8 +51,10 @@ pub fn lapjv<T>(costs: &Matrix<T>) -> Result<(Vec<usize>, Vec<usize>), LapJVErro
     LapJV::new(costs).solve()
 }
 
-pub fn cost<T>(input: &Matrix<T>, x: &[usize]) -> T where T: LapJVCost {
-    (0..x.len()).into_iter().fold(T::zero(), |acc, i| acc + input[(i, x[i])])
+
+/// Calculate solution cost by a result row
+pub fn cost<T>(input: &Matrix<T>, row: &[usize]) -> T where T: LapJVCost {
+    (0..row.len()).into_iter().fold(T::zero(), |acc, i| acc + input[(i, row[i])])
 }
 
 /// Solve LAP problem given cost matrix
@@ -82,20 +84,24 @@ impl <'a, T>LapJV<'a, T> where T: LapJVCost {
             return Err(LapJVError("Input error: matrix is not square"))
         }
         self.ccrrt_dense();
+        debug!("after ccrrt_dense: {:?}", self);
 
         let mut i = 0;
         while !self.free_rows.is_empty() && i < 2 {
             self.carr_dense();
             i+= 1;
         }
+        debug!("after carr_dense: {:?}", self);
 
         if !self.free_rows.is_empty() {
             self.ca_dense()?;
         }
+        debug!("on result: {:?}", self);
 
         Ok((self.in_row, self.in_col))
     }
 
+    // Column-reduction and reduction transfer for a dense cost matrix
     fn ccrrt_dense(&mut self) {
         let mut unique = vec![true; self.dim];
         let mut in_row_not_set = vec![true; self.dim];
@@ -107,13 +113,6 @@ impl <'a, T>LapJV<'a, T> where T: LapJVCost {
             self.in_col.push(min_index);
             self.v.push(min_value);
         }
-
-        // for ((i, j), &c) in self.costs.indexed_iter() {
-        //     if c < self.v[j] {
-        //         self.v[j] = c;
-        //         self.in_col[j] = i;
-        //     }
-        // }
 
         for j in (0..self.dim).into_iter().rev() {
             let i = self.in_col[j];
@@ -146,11 +145,12 @@ impl <'a, T>LapJV<'a, T> where T: LapJVCost {
         }
     }
 
-    // Augmenting row reduction for a dense cost matrix.
+    // Augmenting row reduction for a dense cost matrix
     fn carr_dense(&mut self) {
         // AUGMENTING ROW REDUCTION
         // scan all free rows.
         // in some cases, a free row may be replaced with another one to be scanned next.
+        trace!("carr_dense");
         let dim = self.dim;
         let mut current = 0;
         let mut new_free_rows = 0; // start list of rows still free after augmenting row reduction.
@@ -192,11 +192,9 @@ impl <'a, T>LapJV<'a, T> where T: LapJVCost {
                         new_free_rows += 1;
                     }
                 }
-            } else {
-                if i0 != std::usize::MAX {
-                    self.free_rows[new_free_rows] = i0;
-                    new_free_rows += 1;
-                }
+            } else if i0 != std::usize::MAX {
+                self.free_rows[new_free_rows] = i0;
+                new_free_rows += 1;
             }
             self.in_row[free_i] = j1;
             self.in_col[j1] = free_i;
@@ -205,26 +203,25 @@ impl <'a, T>LapJV<'a, T> where T: LapJVCost {
     }
 
 
-    // Augment for a dense cost matrix.
+    // Augment for a dense cost matrix
     fn ca_dense(&mut self) -> Result<(), LapJVError> {
         let dim = self.dim;
         let mut pred = vec![0; dim];
 
         let free_rows = std::mem::replace(&mut self.free_rows, vec![]);
         for freerow in free_rows {
-            trace!("looking at free_i={}", freerow);
+            trace!("looking at freerow={}", freerow);
 
             let mut i = std::usize::MAX;
             let mut k = 0;
             let mut j = self.find_path_dense(freerow, &mut pred);
-            assert!(j < dim);
+            debug_assert!(j < dim);
             while i != freerow {
                 i = pred[j];
                 self.in_col[j] = i;
-
                 std::mem::swap(&mut j, &mut self.in_row[i]);
                 k += 1;
-                if k >= dim {
+                if k > dim {
                     return Err(LapJVError("Error: ca_dense will not finish"))
                 }
             }
@@ -232,8 +229,8 @@ impl <'a, T>LapJV<'a, T> where T: LapJVCost {
         Ok(())
     }
 
-        /// Single iteration of modified Dijkstra shortest path algorithm as explained in the JV paper.
-    /// return The closest free column index.
+    /// Single iteration of modified Dijkstra shortest path algorithm as explained in the JV paper
+    /// return The closest free column index
     fn find_path_dense(&mut self, start_i: usize, pred: &mut [usize]) -> usize {
         let dim = self.dim;
         let mut collist = Vec::with_capacity(dim); // list of columns to be scanned in various ways.
@@ -270,22 +267,21 @@ impl <'a, T>LapJV<'a, T> where T: LapJVCost {
 
             if final_j.is_none() {
                 trace!("{}..{} -> scan", lo, hi);
-                let maybe_final_j = self.scan_dense(&mut lo, &mut hi, &mut d, &mut collist, pred);
-                if let Some(val) = maybe_final_j {
-                    final_j = Some(val);
-                }
+                final_j = self.scan_dense(&mut lo, &mut hi, &mut d, &mut collist, pred);
             }
         }
 
         trace!("found final_j={:?}", final_j);
+        trace!("cols={:?}", collist);
         let mind = d[collist[lo]];
         for &j in collist.iter().take(n_ready) {
             self.v[j] += d[j] - mind;
         }
         final_j.unwrap()
     }
+
     // Scan all columns in TODO starting from arbitrary column in SCAN
-    // and try to decrease d of the TODO columns using the SCAN column.
+    // and try to decrease d of the TODO columns using the SCAN column
     fn scan_dense(&self, plo: &mut usize, phi: &mut usize, d: &mut [T], collist: &mut [usize], pred: &mut [usize]) -> Option<usize>  {
         let mut lo = *plo;
         let mut hi = *phi;
@@ -302,8 +298,7 @@ impl <'a, T>LapJV<'a, T> where T: LapJVCost {
                 if cred_ij < d[j] {
                     d[j] = cred_ij;
                     pred[j] = i;
-                    if (cred_ij - mind).abs() < T::epsilon() {
-                    // if cred_ij == mind {
+                    if (cred_ij - mind).abs() < T::epsilon() { // if cred_ij == mind {
                         if self.in_col[j] == std::usize::MAX {
                             return Some(j);
                         }
@@ -457,6 +452,17 @@ mod tests {
         let m = Matrix::from_shape_vec((N,N), c).unwrap();
         let result = lapjv(&m).unwrap();
         (m, result)
+    }
+
+    #[test]
+    fn dim_size_augmentation_path() {
+        let m = vec![849.096136535884, 964.7344199800348, 1658.3745235461179, 1324.4750426251608,
+            1565.0473271789378, 1777.6465563492143, 4280.139067225529, 3411.9521087119633,
+            1360.3260879628992, 1546.701932942709, 1304.724155636392, 1048.3839719313205,
+            1559.5777872153571, 1769.1684309771547, 3663.2542984837355, 2926.089718214265];
+        let matrix = Matrix::from_shape_vec((4,4), m).unwrap();
+        let result = lapjv(&matrix);
+        result.unwrap();
     }
 
     #[cfg(feature = "nightly")]
