@@ -16,6 +16,10 @@ include = [
     "README.md"
 ]
 
+[badges]
+travis-ci = { repository = "Antti/lapjv-rust", branch = "master" }
+maintenance = { status = "as-is" }
+
 [features]
 nightly = []
 
