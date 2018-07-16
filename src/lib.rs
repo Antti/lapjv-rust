@@ -84,19 +84,16 @@ impl <'a, T>LapJV<'a, T> where T: LapJVCost {
             return Err(LapJVError("Input error: matrix is not square"))
         }
         self.ccrrt_dense();
-        debug!("after ccrrt_dense: {:?}", self);
 
         let mut i = 0;
         while !self.free_rows.is_empty() && i < 2 {
             self.carr_dense();
             i+= 1;
         }
-        debug!("after carr_dense: {:?}", self);
 
         if !self.free_rows.is_empty() {
             self.ca_dense()?;
         }
-        debug!("on result: {:?}", self);
 
         Ok((self.in_row, self.in_col))
     }
