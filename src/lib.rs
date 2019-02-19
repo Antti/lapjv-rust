@@ -1,22 +1,23 @@
 #![cfg_attr(all(feature = "nightly", test), feature(test))]
 
 extern crate ndarray;
-extern crate rand;
 extern crate num_traits;
-#[macro_use] extern crate log;
+extern crate rand;
+#[macro_use]
+extern crate log;
 
 #[cfg(all(feature = "nightly", test))]
 extern crate test;
 
 use num_traits::Float;
 
-use std::ops;
 use std::fmt;
+use std::ops;
 
 pub type Matrix<T> = ndarray::Array2<T>;
 
 pub trait LapJVCost: Float + ops::AddAssign + ops::SubAssign + std::fmt::Debug {}
-impl <T>LapJVCost for T where T: Float + ops::AddAssign + ops::SubAssign + std::fmt::Debug {}
+impl<T> LapJVCost for T where T: Float + ops::AddAssign + ops::SubAssign + std::fmt::Debug {}
 
 #[derive(Debug)]
 pub struct LapJVError(&'static str);
@@ -39,7 +40,7 @@ pub struct LapJV<'a, T: 'a> {
     free_rows: Vec<usize>,
     v: Vec<T>,
     in_col: Vec<usize>,
-    in_row: Vec<usize>
+    in_row: Vec<usize>,
 }
 
 /// Solve LAP problem given cost matrix
@@ -47,14 +48,21 @@ pub struct LapJV<'a, T: 'a> {
 /// R. Jonker, A. Volgenant. A Shortest Augmenting Path Algorithm for
 /// Dense and Sparse Linear Assignment Problems. Computing 38, 325-340
 /// (1987)
-pub fn lapjv<T>(costs: &Matrix<T>) -> Result<(Vec<usize>, Vec<usize>), LapJVError> where T: LapJVCost {
+pub fn lapjv<T>(costs: &Matrix<T>) -> Result<(Vec<usize>, Vec<usize>), LapJVError>
+where
+    T: LapJVCost,
+{
     LapJV::new(costs).solve()
 }
 
-
 /// Calculate solution cost by a result row
-pub fn cost<T>(input: &Matrix<T>, row: &[usize]) -> T where T: LapJVCost {
-    (0..row.len()).into_iter().fold(T::zero(), |acc, i| acc + input[(i, row[i])])
+pub fn cost<T>(input: &Matrix<T>, row: &[usize]) -> T
+where
+    T: LapJVCost,
+{
+    (0..row.len())
+        .into_iter()
+        .fold(T::zero(), |acc, i| acc + input[(i, row[i])])
 }
 
 /// Solve LAP problem given cost matrix
@@ -62,7 +70,10 @@ pub fn cost<T>(input: &Matrix<T>, row: &[usize]) -> T where T: LapJVCost {
 /// R. Jonker, A. Volgenant. A Shortest Augmenting Path Algorithm for
 /// Dense and Sparse Linear Assignment Problems. Computing 38, 325-340
 /// (1987)
-impl <'a, T>LapJV<'a, T> where T: LapJVCost {
+impl<'a, T> LapJV<'a, T>
+where
+    T: LapJVCost,
+{
     pub fn new(costs: &'a Matrix<T>) -> Self {
         let dim = costs.dim().0; // square matrix dimensions
         let free_rows = Vec::with_capacity(dim); // list of unassigned rows.
@@ -75,20 +86,20 @@ impl <'a, T>LapJV<'a, T> where T: LapJVCost {
             free_rows,
             v,
             in_col,
-            in_row
+            in_row,
         }
     }
 
-    pub fn solve(mut self) ->  Result<(Vec<usize>, Vec<usize>), LapJVError> {
+    pub fn solve(mut self) -> Result<(Vec<usize>, Vec<usize>), LapJVError> {
         if self.costs.dim().0 != self.costs.dim().1 {
-            return Err(LapJVError("Input error: matrix is not square"))
+            return Err(LapJVError("Input error: matrix is not square"));
         }
         self.ccrrt_dense();
 
         let mut i = 0;
         while !self.free_rows.is_empty() && i < 2 {
             self.carr_dense();
-            i+= 1;
+            i += 1;
         }
 
         if !self.free_rows.is_empty() {
@@ -104,9 +115,16 @@ impl <'a, T>LapJV<'a, T> where T: LapJVCost {
         let mut in_row_not_set = vec![true; self.dim];
 
         for row in self.costs.lanes(ndarray::Axis(0)) {
-            let (min_index, min_value) = row.indexed_iter()
-                .skip(1)
-                .fold((0, row[0]), |(old_idx, old_min), (new_idx, &new_min)| if new_min < old_min { (new_idx, new_min) } else { (old_idx, old_min) });
+            let (min_index, min_value) = row.indexed_iter().skip(1).fold(
+                (0, row[0]),
+                |(old_idx, old_min), (new_idx, &new_min)| {
+                    if new_min < old_min {
+                        (new_idx, new_min)
+                    } else {
+                        (old_idx, old_min)
+                    }
+                },
+            );
             self.in_col.push(min_index);
             self.v.push(min_value);
         }
@@ -163,20 +181,22 @@ impl <'a, T>LapJV<'a, T> where T: LapJVCost {
 
             let mut i0 = self.in_col[j1];
             let v1_new = self.v[j1] - (v2 - v1);
-            let v1_lowers = v1_new < self.v[j1];  // the trick to eliminate the epsilon bug
+            let v1_lowers = v1_new < self.v[j1]; // the trick to eliminate the epsilon bug
 
             if rr_cnt < current * dim {
                 if v1_lowers {
                     // change the reduction of the minimum column to increase the minimum
                     // reduced cost in the row to the subminimum.
                     self.v[j1] = v1_new;
-                } else if i0 != std::usize::MAX && j2.is_some() { // minimum and subminimum equal.
+                } else if i0 != std::usize::MAX && j2.is_some() {
+                    // minimum and subminimum equal.
                     // minimum column j1 is assigned.
                     // swap columns j1 and j2, as j2 may be unassigned.
                     j1 = j2.unwrap();
                     i0 = self.in_col[j1];
                 }
-                if i0 != std::usize::MAX { // minimum column j1 assigned earlier.
+                if i0 != std::usize::MAX {
+                    // minimum column j1 assigned earlier.
                     if v1_lowers {
                         // put in current k, and go back to that k.
                         // continue augmenting path i - j1 with i0.
@@ -199,7 +219,6 @@ impl <'a, T>LapJV<'a, T> where T: LapJVCost {
         self.free_rows.truncate(new_free_rows);
     }
 
-
     // Augment for a dense cost matrix
     fn ca_dense(&mut self) -> Result<(), LapJVError> {
         let dim = self.dim;
@@ -219,7 +238,7 @@ impl <'a, T>LapJV<'a, T> where T: LapJVCost {
                 std::mem::swap(&mut j, &mut self.in_row[i]);
                 k += 1;
                 if k > dim {
-                    return Err(LapJVError("Error: ca_dense will not finish"))
+                    return Err(LapJVError("Error: ca_dense will not finish"));
                 }
             }
         }
@@ -247,7 +266,7 @@ impl <'a, T>LapJV<'a, T> where T: LapJVCost {
 
         trace!("d: {:?}", d);
         let mut final_j = None;
-        while  final_j.is_none() {
+        while final_j.is_none() {
             if lo == hi {
                 trace!("{}..{} -> find", lo, hi);
                 n_ready = lo;
@@ -279,7 +298,14 @@ impl <'a, T>LapJV<'a, T> where T: LapJVCost {
 
     // Scan all columns in TODO starting from arbitrary column in SCAN
     // and try to decrease d of the TODO columns using the SCAN column
-    fn scan_dense(&self, plo: &mut usize, phi: &mut usize, d: &mut [T], collist: &mut [usize], pred: &mut [usize]) -> Option<usize>  {
+    fn scan_dense(
+        &self,
+        plo: &mut usize,
+        phi: &mut usize,
+        d: &mut [T],
+        collist: &mut [usize],
+        pred: &mut [usize],
+    ) -> Option<usize> {
         let mut lo = *plo;
         let mut hi = *phi;
         while lo != hi {
@@ -295,7 +321,8 @@ impl <'a, T>LapJV<'a, T> where T: LapJVCost {
                 if cred_ij < d[j] {
                     d[j] = cred_ij;
                     pred[j] = i;
-                    if (cred_ij - mind).abs() < T::epsilon() { // if cred_ij == mind {
+                    if (cred_ij - mind).abs() < T::epsilon() {
+                        // if cred_ij == mind {
                         if self.in_col[j] == std::usize::MAX {
                             return Some(j);
                         }
@@ -323,14 +350,18 @@ impl <'a, T>LapJV<'a, T> where T: LapJVCost {
     }
 }
 
-fn find_dense<T>(dim: usize, lo: usize, d: &[T], collist: &mut [usize]) -> usize  where T: LapJVCost {
-    let mut hi  = lo + 1;
+fn find_dense<T>(dim: usize, lo: usize, d: &[T], collist: &mut [usize]) -> usize
+where
+    T: LapJVCost,
+{
+    let mut hi = lo + 1;
     let mut mind = d[collist[lo]];
     for k in hi..dim {
         let j = collist[k];
         let h = d[j];
         if h <= mind {
-            if h < mind { // new minimum.
+            if h < mind {
+                // new minimum.
                 hi = lo; // restart list at index low.
                 mind = h;
             }
@@ -345,7 +376,10 @@ fn find_dense<T>(dim: usize, lo: usize, d: &[T], collist: &mut [usize]) -> usize
 
 // Finds minimum and second minimum from a row, returns (min, second_min, min_index, second_min_index)
 #[inline(always)]
-fn find_umins_plain<T>(local_cost: ndarray::ArrayView1<T>, v: &[T]) -> (T, T, usize, Option<usize>)  where T: LapJVCost{
+fn find_umins_plain<T>(local_cost: ndarray::ArrayView1<T>, v: &[T]) -> (T, T, usize, Option<usize>)
+where
+    T: LapJVCost,
+{
     let mut umin = local_cost[0] - v[0];
     let mut usubmin = T::max_value();
     let mut j1 = 0;
@@ -374,7 +408,8 @@ mod tests {
 
     #[test]
     fn it_works() {
-        let m = Matrix::from_shape_vec((3,3), vec![1.0,2.0,3.0,4.0,5.0,6.0,7.0,8.0,9.0]).unwrap();
+        let m = Matrix::from_shape_vec((3, 3), vec![1.0, 2.0, 3.0, 4.0, 5.0, 6.0, 7.0, 8.0, 9.0])
+            .unwrap();
         let result = lapjv(&m).unwrap();
         assert_eq!(result.0, vec![2, 0, 1]);
         assert_eq!(result.1, vec![1, 2, 0]);
@@ -385,37 +420,127 @@ mod tests {
         let (m, result) = solve_random10();
         let cost = cost(&m, &result.0);
         assert_eq!(cost, 1071.0);
-        assert_eq!(result.0, vec![7,9,3,4,1,0,5,6,2,8]);
+        assert_eq!(result.0, vec![7, 9, 3, 4, 1, 0, 5, 6, 2, 8]);
     }
 
     #[test]
     fn test_solve_inf1() {
         let c = vec![
-            std::f64::INFINITY, 643.0, 717.0,   2.0, 946.0, 534.0, 242.0, 235.0, 376.0, 839.0,
-            std::f64::INFINITY, 141.0, 799.0, 180.0, 386.0, 745.0, 592.0, 822.0, 421.0,  42.0,
-            std::f64::INFINITY, 369.0, 831.0,  67.0, 258.0, 549.0, 615.0, 529.0, 458.0, 524.0,
-            std::f64::INFINITY, 649.0, 287.0, 910.0,  12.0, 820.0,  31.0,  92.0, 217.0, 555.0,
-            std::f64::INFINITY,  81.0, 568.0, 241.0, 292.0, 653.0, 417.0, 652.0, 630.0, 788.0,
-            std::f64::INFINITY, 822.0, 788.0, 166.0, 122.0, 690.0, 304.0, 568.0, 449.0, 214.0,
-            std::f64::INFINITY, 469.0, 584.0, 633.0, 213.0, 414.0, 498.0, 500.0, 317.0, 391.0,
-            std::f64::INFINITY, 581.0, 183.0, 420.0,  16.0, 748.0,  35.0, 516.0, 639.0, 356.0,
-            std::f64::INFINITY, 921.0,  67.0,  33.0, 592.0, 775.0, 780.0, 335.0, 464.0, 788.0,
-            123.0, 455.0, 950.0,  25.0,  22.0, 576.0, 969.0, 122.0,  86.0,  74.0,
+            std::f64::INFINITY,
+            643.0,
+            717.0,
+            2.0,
+            946.0,
+            534.0,
+            242.0,
+            235.0,
+            376.0,
+            839.0,
+            std::f64::INFINITY,
+            141.0,
+            799.0,
+            180.0,
+            386.0,
+            745.0,
+            592.0,
+            822.0,
+            421.0,
+            42.0,
+            std::f64::INFINITY,
+            369.0,
+            831.0,
+            67.0,
+            258.0,
+            549.0,
+            615.0,
+            529.0,
+            458.0,
+            524.0,
+            std::f64::INFINITY,
+            649.0,
+            287.0,
+            910.0,
+            12.0,
+            820.0,
+            31.0,
+            92.0,
+            217.0,
+            555.0,
+            std::f64::INFINITY,
+            81.0,
+            568.0,
+            241.0,
+            292.0,
+            653.0,
+            417.0,
+            652.0,
+            630.0,
+            788.0,
+            std::f64::INFINITY,
+            822.0,
+            788.0,
+            166.0,
+            122.0,
+            690.0,
+            304.0,
+            568.0,
+            449.0,
+            214.0,
+            std::f64::INFINITY,
+            469.0,
+            584.0,
+            633.0,
+            213.0,
+            414.0,
+            498.0,
+            500.0,
+            317.0,
+            391.0,
+            std::f64::INFINITY,
+            581.0,
+            183.0,
+            420.0,
+            16.0,
+            748.0,
+            35.0,
+            516.0,
+            639.0,
+            356.0,
+            std::f64::INFINITY,
+            921.0,
+            67.0,
+            33.0,
+            592.0,
+            775.0,
+            780.0,
+            335.0,
+            464.0,
+            788.0,
+            123.0,
+            455.0,
+            950.0,
+            25.0,
+            22.0,
+            576.0,
+            969.0,
+            122.0,
+            86.0,
+            74.0,
         ];
-        let m = Matrix::from_shape_vec((10,10), c).unwrap();
+        let m = Matrix::from_shape_vec((10, 10), c).unwrap();
         let result = lapjv(&m).unwrap();
         let cost = cost(&m, &result.0);
         assert_eq!(cost, 1403.0);
         assert_eq!(result.0, vec![7, 9, 3, 8, 1, 4, 5, 6, 2, 0]);
     }
 
-
     #[test]
     fn test_find_umins() {
-        let m = Matrix::from_shape_vec((3,3), vec![25.0,0.0,15.0,4.0,5.0,6.0,7.0,8.0,9.0]).unwrap();
-        let result = find_umins_plain(m.row(0), &vec![0.0,0.0,0.0]);
+        let m = Matrix::from_shape_vec((3, 3), vec![25.0, 0.0, 15.0, 4.0, 5.0, 6.0, 7.0, 8.0, 9.0])
+            .unwrap();
+        let result = find_umins_plain(m.row(0), &vec![0.0, 0.0, 0.0]);
         println!("Result: {:?}", result);
-        assert_eq!(result,(0.0, 15.0, 1, Some(2)));
+        assert_eq!(result, (0.0, 15.0, 1, Some(2)));
     }
 
     #[test]
@@ -424,48 +549,61 @@ mod tests {
         let mut rng = rand::thread_rng();
 
         const DIM: usize = 512;
-        let mut m = Vec::with_capacity(DIM*DIM);
-        for _ in 0..DIM*DIM {
-            m.push(rng.next_f64()*100.0);
+        let mut m = Vec::with_capacity(DIM * DIM);
+        for _ in 0..DIM * DIM {
+            m.push(rng.next_f64() * 100.0);
         }
-        let m = Matrix::from_shape_vec((DIM,DIM), m).unwrap();
+        let m = Matrix::from_shape_vec((DIM, DIM), m).unwrap();
         let _result = lapjv(&m).unwrap();
     }
 
     fn solve_random10() -> (Matrix<f64>, (Vec<usize>, Vec<usize>)) {
         const N: usize = 10;
         let c = vec![
-            612.0, 643.0, 717.0,   2.0, 946.0, 534.0, 242.0, 235.0, 376.0, 839.0,
-            224.0, 141.0, 799.0, 180.0, 386.0, 745.0, 592.0, 822.0, 421.0,  42.0,
-            241.0, 369.0, 831.0,  67.0, 258.0, 549.0, 615.0, 529.0, 458.0, 524.0,
-            231.0, 649.0, 287.0, 910.0,  12.0, 820.0,  31.0,  92.0, 217.0, 555.0,
-            912.0,  81.0, 568.0, 241.0, 292.0, 653.0, 417.0, 652.0, 630.0, 788.0,
-            32.0, 822.0, 788.0, 166.0, 122.0, 690.0, 304.0, 568.0, 449.0, 214.0,
-            441.0, 469.0, 584.0, 633.0, 213.0, 414.0, 498.0, 500.0, 317.0, 391.0,
-            798.0, 581.0, 183.0, 420.0,  16.0, 748.0,  35.0, 516.0, 639.0, 356.0,
-            351.0, 921.0,  67.0,  33.0, 592.0, 775.0, 780.0, 335.0, 464.0, 788.0,
-            771.0, 455.0, 950.0,  25.0,  22.0, 576.0, 969.0, 122.0,  86.0,  74.0,
+            612.0, 643.0, 717.0, 2.0, 946.0, 534.0, 242.0, 235.0, 376.0, 839.0, 224.0, 141.0,
+            799.0, 180.0, 386.0, 745.0, 592.0, 822.0, 421.0, 42.0, 241.0, 369.0, 831.0, 67.0,
+            258.0, 549.0, 615.0, 529.0, 458.0, 524.0, 231.0, 649.0, 287.0, 910.0, 12.0, 820.0,
+            31.0, 92.0, 217.0, 555.0, 912.0, 81.0, 568.0, 241.0, 292.0, 653.0, 417.0, 652.0, 630.0,
+            788.0, 32.0, 822.0, 788.0, 166.0, 122.0, 690.0, 304.0, 568.0, 449.0, 214.0, 441.0,
+            469.0, 584.0, 633.0, 213.0, 414.0, 498.0, 500.0, 317.0, 391.0, 798.0, 581.0, 183.0,
+            420.0, 16.0, 748.0, 35.0, 516.0, 639.0, 356.0, 351.0, 921.0, 67.0, 33.0, 592.0, 775.0,
+            780.0, 335.0, 464.0, 788.0, 771.0, 455.0, 950.0, 25.0, 22.0, 576.0, 969.0, 122.0, 86.0,
+            74.0,
         ];
-        let m = Matrix::from_shape_vec((N,N), c).unwrap();
+        let m = Matrix::from_shape_vec((N, N), c).unwrap();
         let result = lapjv(&m).unwrap();
         (m, result)
     }
 
     #[test]
     fn dim_size_augmentation_path() {
-        let m = vec![849.096136535884, 964.7344199800348, 1658.3745235461179, 1324.4750426251608,
-            1565.0473271789378, 1777.6465563492143, 4280.139067225529, 3411.9521087119633,
-            1360.3260879628992, 1546.701932942709, 1304.724155636392, 1048.3839719313205,
-            1559.5777872153571, 1769.1684309771547, 3663.2542984837355, 2926.089718214265];
-        let matrix = Matrix::from_shape_vec((4,4), m).unwrap();
+        let m = vec![
+            849.096136535884,
+            964.7344199800348,
+            1658.3745235461179,
+            1324.4750426251608,
+            1565.0473271789378,
+            1777.6465563492143,
+            4280.139067225529,
+            3411.9521087119633,
+            1360.3260879628992,
+            1546.701932942709,
+            1304.724155636392,
+            1048.3839719313205,
+            1559.5777872153571,
+            1769.1684309771547,
+            3663.2542984837355,
+            2926.089718214265,
+        ];
+        let matrix = Matrix::from_shape_vec((4, 4), m).unwrap();
         let result = lapjv(&matrix);
         result.unwrap();
     }
 
     #[cfg(feature = "nightly")]
     mod benches {
-        use test::Bencher;
         use super::*;
+        use test::Bencher;
 
         #[bench]
         fn bench_solve_random10(b: &mut Bencher) {
