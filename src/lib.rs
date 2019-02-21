@@ -545,13 +545,10 @@ mod tests {
 
     #[test]
     fn test_random() {
-        use rand::Rng;
-        let mut rng = rand::thread_rng();
-
         const DIM: usize = 512;
         let mut m = Vec::with_capacity(DIM * DIM);
         for _ in 0..DIM * DIM {
-            m.push(rng.next_f64() * 100.0);
+            m.push(rand::random::<f64>() * 100.0);
         }
         let m = Matrix::from_shape_vec((DIM, DIM), m).unwrap();
         let _result = lapjv(&m).unwrap();
