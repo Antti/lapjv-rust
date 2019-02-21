@@ -2,6 +2,7 @@
 
 extern crate ndarray;
 extern crate num_traits;
+#[cfg(test)]
 extern crate rand;
 #[macro_use]
 extern crate log;
@@ -61,7 +62,6 @@ where
     T: LapJVCost,
 {
     (0..row.len())
-        .into_iter()
         .fold(T::zero(), |acc, i| acc + input[(i, row[i])])
 }
 
@@ -129,7 +129,7 @@ where
             self.v.push(min_value);
         }
 
-        for j in (0..self.dim).into_iter().rev() {
+        for j in (0..self.dim).rev() {
             let i = self.in_col[j];
             if in_row_not_set[i] {
                 self.in_row[i] = j;
