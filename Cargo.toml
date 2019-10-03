@@ -23,10 +23,10 @@ maintenance = { status = "as-is" }
 nightly = []
 
 [dependencies]
-ndarray = "0.12"
-num-traits = "0.1"
-log = { version = "0.4", features = ["max_level_debug", "release_max_level_warn"] }
+ndarray = "0.13.0"
+num-traits = "0.2.8"
+log = { version = "0.4.8", features = ["max_level_debug", "release_max_level_warn"] }
 
 [dev-dependencies]
-rand = "0.6"
-rustc_version = "0.2"
+rand = "0.7.2"
+rustc_version = "0.2.3"
