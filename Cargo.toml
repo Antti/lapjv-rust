@@ -23,7 +23,7 @@ maintenance = { status = "as-is" }
 nightly = []
 
 [dependencies]
-ndarray = "0.12"
+ndarray = "0.13"
 num-traits = "0.1"
 log = { version = "0.4", features = ["max_level_debug", "release_max_level_warn"] }
 
