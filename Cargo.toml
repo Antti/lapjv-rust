@@ -24,7 +24,7 @@ nightly = []
 
 [dependencies]
 ndarray = "0.13"
-num-traits = "0.1"
+num-traits = "0.2"
 log = { version = "0.4", features = ["max_level_debug", "release_max_level_warn"] }
 
 [dev-dependencies]
