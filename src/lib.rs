@@ -14,26 +14,41 @@ use num_traits::Float;
 
 use std::fmt;
 use std::ops;
+use std::sync::atomic::{AtomicBool, Ordering};
+use std::sync::Arc;
 
 pub type Matrix<T> = ndarray::Array2<T>;
 
 pub trait LapJVCost: Float + ops::AddAssign + ops::SubAssign + std::fmt::Debug {}
 impl<T> LapJVCost for T where T: Float + ops::AddAssign + ops::SubAssign + std::fmt::Debug {}
 
+#[derive(Debug, Copy, Clone)]
+pub enum ErrorKind {
+    Msg(&'static str),
+    Cancelled,
+}
+
 #[derive(Debug)]
-pub struct LapJVError(&'static str);
+pub struct LapJVError {
+    kind: ErrorKind,
+}
+
+impl LapJVError {
+    pub fn kind(&self) -> ErrorKind {
+        self.kind
+    }
+}
 
 impl std::fmt::Display for LapJVError {
     fn fmt(&self, f: &mut fmt::Formatter) -> Result<(), fmt::Error> {
-        write!(f, "{}", self.0)
+        match self.kind {
+            ErrorKind::Msg(string) => write!(f, "{}", string),
+            ErrorKind::Cancelled => write!(f, "cancelled"),
+        }
     }
 }
 
-impl std::error::Error for LapJVError {
-    fn description(&self) -> &str {
-        self.0
-    }
-}
+impl std::error::Error for LapJVError {}
 
 pub struct LapJV<'a, T: 'a> {
     costs: &'a Matrix<T>,
@@ -42,6 +57,7 @@ pub struct LapJV<'a, T: 'a> {
     v: Vec<T>,
     in_col: Vec<usize>,
     in_row: Vec<usize>,
+    cancellation: Cancellation,
 }
 
 /// Solve LAP problem given cost matrix
@@ -65,6 +81,19 @@ where
         .fold(T::zero(), |acc, i| acc + input[(i, row[i])])
 }
 
+#[derive(Clone)]
+pub struct Cancellation(Arc<AtomicBool>);
+
+impl Cancellation {
+    pub fn cancel(&self) {
+        self.0.store(true, Ordering::SeqCst)
+    }
+
+    pub fn is_cancelled(&self) -> bool {
+        self.0.load(Ordering::SeqCst)
+    }
+}
+
 /// Solve LAP problem given cost matrix
 /// This is an implementation of the LAPJV algorithm described in:
 /// R. Jonker, A. Volgenant. A Shortest Augmenting Path Algorithm for
@@ -80,6 +109,7 @@ where
         let v = Vec::with_capacity(dim);
         let in_row = vec![0; dim];
         let in_col = Vec::with_capacity(dim);
+        let cancellation = Cancellation(Default::default());
         Self {
             costs,
             dim,
@@ -87,17 +117,31 @@ where
             v,
             in_col,
             in_row,
+            cancellation
         }
+    }
+
+    /// Returns a `Cancellation` token which can be cancelled from another thread.
+    pub fn cancellation(&self) -> Cancellation {
+        self.cancellation.clone()
+    }
+
+    fn check_cancelled(&self) -> Result<(), LapJVError> {
+        if self.cancellation.is_cancelled() {
+            return Err(LapJVError { kind: ErrorKind::Cancelled });
+        }
+        Ok(())
     }
 
     pub fn solve(mut self) -> Result<(Vec<usize>, Vec<usize>), LapJVError> {
         if self.costs.dim().0 != self.costs.dim().1 {
-            return Err(LapJVError("Input error: matrix is not square"));
+            return Err(LapJVError { kind: ErrorKind::Msg("Input error: matrix is not square") } );
         }
         self.ccrrt_dense();
 
         let mut i = 0;
         while !self.free_rows.is_empty() && i < 2 {
+            self.check_cancelled()?;
             self.carr_dense();
             i += 1;
         }
@@ -228,6 +272,8 @@ where
         for freerow in free_rows {
             trace!("looking at freerow={}", freerow);
 
+            self.check_cancelled()?;
+
             let mut i = std::usize::MAX;
             let mut k = 0;
             let mut j = self.find_path_dense(freerow, &mut pred);
@@ -238,7 +284,7 @@ where
                 std::mem::swap(&mut j, &mut self.in_row[i]);
                 k += 1;
                 if k > dim {
-                    return Err(LapJVError("Error: ca_dense will not finish"));
+                    return Err(LapJVError { kind: ErrorKind::Msg("Error: ca_dense will not finish") });
                 }
             }
         }
@@ -413,6 +459,17 @@ mod tests {
         let result = lapjv(&m).unwrap();
         assert_eq!(result.0, vec![2, 0, 1]);
         assert_eq!(result.1, vec![1, 2, 0]);
+    }
+
+    #[test]
+    fn cancellation() {
+        let m = Matrix::from_shape_vec((3, 3), vec![1.0, 2.0, 3.0, 4.0, 5.0, 6.0, 7.0, 8.0, 9.0])
+            .unwrap();
+        let lapjv = LapJV::new(&m);
+        let cancellation = lapjv.cancellation();
+        cancellation.cancel();
+        let result = lapjv.solve();
+        assert!(matches!(result, Err(LapJVError { kind: ErrorKind::Cancelled })));
     }
 
     #[test]
