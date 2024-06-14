@@ -3,7 +3,7 @@
 [![Crates.io](https://img.shields.io/crates/v/lapjv.svg)](https://crates.io/crates/lapjv) [![Crates.io](https://img.shields.io/crates/d/lapjv.svg)](https://crates.io/crates/lapjv)
 [![Build Status](https://travis-ci.org/Antti/lapjv-rust.svg?branch=master)](https://travis-ci.org/Antti/lapjv-rust)
 
-## Linear Assignment Problem solver using Jonker-Volgenant algorithm
+## Linear Assignment Problem solver using Jonker-Volgenant algorithm
 
 
 This is rust implementation of the Jonker-Volgenant algorithm for linear assignment problem
@@ -11,7 +11,7 @@ This is rust implementation of the Jonker-Volgenant algorithm for linear assignm
 * [documentation](https://docs.rs/lapjv/)
 * [website](https://github.com/Antti/lapjv/)
 
-## Example usage:
+## Simple usage:
 
 ```rust
 use lapjv::lapjv;
