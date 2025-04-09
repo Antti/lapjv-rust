@@ -23,7 +23,7 @@ maintenance = { status = "as-is" }
 nightly = []
 
 [dependencies]
-ndarray = "0.13"
+ndarray = "0.16"
 num-traits = "0.2"
 log = "0.4"
 
