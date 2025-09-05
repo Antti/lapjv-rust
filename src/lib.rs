@@ -1,5 +1,3 @@
-use ndarray;
-use num_traits;
 use num_traits::Float;
 use log::trace;
 
@@ -174,7 +172,7 @@ where
                 in_row_not_set[i] = false;
             } else {
                 unique[i] = false;
-                self.in_col[j] = std::usize::MAX;
+                self.in_col[j] = usize::MAX;
             }
         }
 
@@ -226,14 +224,14 @@ where
                     // change the reduction of the minimum column to increase the minimum
                     // reduced cost in the row to the subminimum.
                     self.v[j1] = v1_new;
-                } else if i0 != std::usize::MAX && j2.is_some() {
+                } else if i0 != usize::MAX && j2.is_some() {
                     // minimum and subminimum equal.
                     // minimum column j1 is assigned.
                     // swap columns j1 and j2, as j2 may be unassigned.
                     j1 = j2.unwrap();
                     i0 = self.in_col[j1];
                 }
-                if i0 != std::usize::MAX {
+                if i0 != usize::MAX {
                     // minimum column j1 assigned earlier.
                     if v1_lowers {
                         // put in current k, and go back to that k.
@@ -247,7 +245,7 @@ where
                         new_free_rows += 1;
                     }
                 }
-            } else if i0 != std::usize::MAX {
+            } else if i0 != usize::MAX {
                 self.free_rows[new_free_rows] = i0;
                 new_free_rows += 1;
             }
@@ -262,13 +260,13 @@ where
         let dim = self.dim;
         let mut pred = vec![0; dim];
 
-        let free_rows = std::mem::replace(&mut self.free_rows, vec![]);
+        let free_rows = std::mem::take(&mut self.free_rows);
         for freerow in free_rows {
             trace!("looking at freerow={}", freerow);
 
             self.check_cancelled()?;
 
-            let mut i = std::usize::MAX;
+            let mut i = usize::MAX;
             let mut k = 0;
             let mut j = self.find_path_dense(freerow, &mut pred);
             debug_assert!(j < dim);
@@ -317,7 +315,7 @@ where
                 // check if any of the minimum columns happens to be unassigned.
                 // if so, we have an augmenting path right away.
                 for &j in collist.iter().take(hi).skip(lo) {
-                    if self.in_col[j] == std::usize::MAX {
+                    if self.in_col[j] == usize::MAX {
                         final_j = Some(j);
                     }
                 }
@@ -365,7 +363,7 @@ where
                     pred[j] = i;
                     if (cred_ij - mind).abs() < T::epsilon() {
                         // if cred_ij == mind {
-                        if self.in_col[j] == std::usize::MAX {
+                        if self.in_col[j] == usize::MAX {
                             return Some(j);
                         }
                         collist[k] = collist[hi];
