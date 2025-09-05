@@ -1,14 +1,14 @@
 [package]
 name = "lapjv"
-version = "0.2.1"
+version = "0.3.0"
 authors = ["Andrii Dmytrenko <andrii.dmytrenko@deliveroo.co.uk>"]
 description = "Linear Assignmment Problem solve using Jonker-Volgenant algorithm"
 license = "MIT"
 documentation = "https://docs.rs/lapjv"
 homepage = "https://github.com/Antti/lapjv-rust"
 repository = "https://github.com/Antti/lapjv-rust.git"
+edition = "2024"
 
-build = "build.rs"
 include = [
     "**/*.rs",
     "Cargo.toml",
@@ -23,10 +23,9 @@ maintenance = { status = "as-is" }
 nightly = []
 
 [dependencies]
-ndarray = "0.13"
+ndarray = "0.16"
 num-traits = "0.2"
 log = "0.4"
 
 [dev-dependencies]
-rand = "0.7"
-rustc_version = "0.2"
+rand = "0.9"

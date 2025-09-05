@@ -1,21 +1,12 @@
-#![cfg_attr(all(feature = "nightly", test), feature(test))]
-
-extern crate ndarray;
-extern crate num_traits;
-#[cfg(test)]
-extern crate rand;
-#[macro_use]
-extern crate log;
-
-#[cfg(all(feature = "nightly", test))]
-extern crate test;
-
+use ndarray;
+use num_traits;
 use num_traits::Float;
+use log::trace;
 
 use std::fmt;
 use std::ops;
-use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::Arc;
+use std::sync::atomic::{AtomicBool, Ordering};
 
 pub type Matrix<T> = ndarray::Array2<T>;
 
@@ -77,8 +68,7 @@ pub fn cost<T>(input: &Matrix<T>, row: &[usize]) -> T
 where
     T: LapJVCost,
 {
-    (0..row.len())
-        .fold(T::zero(), |acc, i| acc + input[(i, row[i])])
+    (0..row.len()).fold(T::zero(), |acc, i| acc + input[(i, row[i])])
 }
 
 #[derive(Clone)]
@@ -117,7 +107,7 @@ where
             v,
             in_col,
             in_row,
-            cancellation
+            cancellation,
         }
     }
 
@@ -128,14 +118,18 @@ where
 
     fn check_cancelled(&self) -> Result<(), LapJVError> {
         if self.cancellation.is_cancelled() {
-            return Err(LapJVError { kind: ErrorKind::Cancelled });
+            return Err(LapJVError {
+                kind: ErrorKind::Cancelled,
+            });
         }
         Ok(())
     }
 
     pub fn solve(mut self) -> Result<(Vec<usize>, Vec<usize>), LapJVError> {
         if self.costs.dim().0 != self.costs.dim().1 {
-            return Err(LapJVError { kind: ErrorKind::Msg("Input error: matrix is not square") } );
+            return Err(LapJVError {
+                kind: ErrorKind::Msg("Input error: matrix is not square"),
+            });
         }
         self.ccrrt_dense();
 
@@ -284,7 +278,9 @@ where
                 std::mem::swap(&mut j, &mut self.in_row[i]);
                 k += 1;
                 if k > dim {
-                    return Err(LapJVError { kind: ErrorKind::Msg("Error: ca_dense will not finish") });
+                    return Err(LapJVError {
+                        kind: ErrorKind::Msg("Error: ca_dense will not finish"),
+                    });
                 }
             }
         }
@@ -469,7 +465,12 @@ mod tests {
         let cancellation = lapjv.cancellation();
         cancellation.cancel();
         let result = lapjv.solve();
-        assert!(matches!(result, Err(LapJVError { kind: ErrorKind::Cancelled })));
+        assert!(matches!(
+            result,
+            Err(LapJVError {
+                kind: ErrorKind::Cancelled
+            })
+        ));
     }
 
     #[test]
